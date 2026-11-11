@@ -150,6 +150,57 @@ class ExampleUnitTest {
             spriteRowsWithPlayerColor >= 42
         )
 
+        val nonBlackLeftBorderPlayfieldRows = (0 until 160).count { y ->
+            (0 until 7).any { x -> (renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000 }
+        }
+        val nonBlackRightBorderPlayfieldRows = (0 until 160).count { y ->
+            (311 until 320).any { x -> (renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000 }
+        }
+        assertEquals(
+            "Expected all 160 playfield scanlines to render edge-to-edge on the left (x=0..6) with zero black border bars",
+            160,
+            nonBlackLeftBorderPlayfieldRows
+        )
+        assertEquals(
+            "Expected all 160 playfield scanlines to render edge-to-edge on the right (x=311..319) with zero black border bars",
+            160,
+            nonBlackRightBorderPlayfieldRows
+        )
+
+        val nonBlackLeftHudRows = (160 until 200).count { y ->
+            (0 until 40).all { x -> (renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000 }
+        }
+        val nonBlackRightHudRows = (160 until 200).count { y ->
+            (280 until 320).all { x -> (renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000 }
+        }
+        assertEquals(
+            "Expected all 40 HUD scanlines (y=160..199) to have full stone wings on the left (x=0..39) with zero black bars",
+            40,
+            nonBlackLeftHudRows
+        )
+        assertEquals(
+            "Expected all 40 HUD scanlines (y=160..199) to have full stone wings on the right (x=280..319) with zero black bars",
+            40,
+            nonBlackRightHudRows
+        )
+
+        renderer.displayAspectRatio = 20f / 9f
+        core.runSinglePalFrame()
+        val widescreenPlayerRows = (0 until 48).count { dy ->
+            val displayY = (playerY - 50 + dy).coerceIn(0, 199)
+            val rowStart = displayY * 320
+            (0 until 320).any { x ->
+                val c = renderer.framePixels[rowStart + x] and 0xFFFFFF
+                c == 0xB86962 || c == 0x9F9F9F || c == 0x000000
+            }
+        }
+        assertTrue(
+            "Expected widescreen aspect-compensated player sprite to remain intact across body rows, got $widescreenPlayerRows/48",
+            widescreenPlayerRows >= 42
+        )
+        renderer.displayAspectRatio = 1.6f
+        core.runSinglePalFrame()
+
         val cheatState = core.toggleCheatMode()
         assertTrue(cheatState)
         assertEquals(255, core.ram[symCheatBit + 1].toInt() and 0xFF)

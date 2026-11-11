@@ -52,7 +52,17 @@ data class AlteredBeastUiState(
 
 class AlteredBeastViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _uiState = MutableStateFlow(AlteredBeastUiState())
+    private val outputBitmaps = arrayOf(
+        Bitmap.createBitmap(320, 200, Bitmap.Config.ARGB_8888),
+        Bitmap.createBitmap(320, 200, Bitmap.Config.ARGB_8888)
+    )
+    private var activeBitmapIndex = 0
+
+    private val _uiState = MutableStateFlow(
+        AlteredBeastUiState(
+            frameBitmap = outputBitmaps[0].asImageBitmap()
+        )
+    )
     val uiState: StateFlow<AlteredBeastUiState> = _uiState.asStateFlow()
 
     private val baseAssetProvider = AndroidAssetProvider(application.assets)
@@ -68,15 +78,12 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
     )
     val luaModEngine = LuaModEngine(executionCore, modAssetRouter)
 
-    private val outputBitmap = Bitmap.createBitmap(320, 200, Bitmap.Config.ARGB_8888)
     private var engineJob: Job? = null
 
     @Volatile
     private var targetDeviceRefreshRate: Float = 60f
 
     init {
-        sidSynthesizer.configureForDevice(application)
-        detectDeviceRefreshRateCap(application)
         startNativeEngineLoop()
     }
 
@@ -105,6 +112,24 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    fun updateDisplayAspectRatio(width: Float, height: Float) {
+        if (width > 0f && height > 0f) {
+            val ratio = (width / height).coerceIn(1.2f, 2.6f)
+            if (kotlin.math.abs(videoRenderer.displayAspectRatio - ratio) > 0.005f) {
+                videoRenderer.displayAspectRatio = ratio
+            }
+        }
+    }
+
+    private fun publishFrameBitmap(): ImageBitmap {
+        val nextIndex = activeBitmapIndex xor 1
+        val targetBmp = outputBitmaps[nextIndex]
+        targetBmp.setPixels(videoRenderer.framePixels, 0, 320, 0, 0, 320, 200)
+        targetBmp.prepareToDraw()
+        activeBitmapIndex = nextIndex
+        return targetBmp.asImageBitmap()
+    }
+
     private fun startNativeEngineLoop() {
         if (engineJob != null) return
         val appContext = getApplication<Application>()
@@ -113,8 +138,7 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
             executionCore.initializeEngine()
             sidSynthesizer.start(appContext)
             executionCore.runSinglePalFrame()
-            outputBitmap.setPixels(videoRenderer.framePixels, 0, 320, 0, 0, 320, 200)
-            val initialComposeBitmap = outputBitmap.asImageBitmap()
+            val initialComposeBitmap = publishFrameBitmap()
             _uiState.update {
                 it.copy(
                     frameBitmap = initialComposeBitmap,
@@ -152,8 +176,9 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
                     palAccumulatorNs = palStepNs - 1L
                 }
 
+                var updatedComposeBmp: ImageBitmap? = null
                 if (steppedPal) {
-                    outputBitmap.setPixels(videoRenderer.framePixels, 0, 320, 0, 0, 320, 200)
+                    updatedComposeBmp = publishFrameBitmap()
                     tickCounter++
                 }
 
@@ -168,10 +193,9 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
                 }
 
                 if (steppedPal || windowElapsedNs >= 500_000_000L) {
-                    val composeBmp = outputBitmap.asImageBitmap()
                     _uiState.update { state ->
                         state.copy(
-                            frameBitmap = composeBmp,
+                            frameBitmap = updatedComposeBmp ?: state.frameBitmap,
                             frameTick = tickCounter,
                             isInGameMode = executionCore.inGameMode,
                             currentLevel = executionCore.currentLoadedLevel,

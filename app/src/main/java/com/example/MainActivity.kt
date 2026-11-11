@@ -43,6 +43,8 @@ import com.example.ui.theme.ArcadeObsidian
 class MainActivity : ComponentActivity() {
 
     private val viewModel: AlteredBeastViewModel by viewModels()
+    private var hasPromptedStoragePermission = false
+    private var lastAppliedRefreshRate = 0f
 
     private val legacyStoragePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -53,8 +55,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        configureImmersiveDisplayAndRefreshRate()
-        ensureModStoragePermissions()
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        applyFullBleedCutoutMode()
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         setContent {
             AlteredBeastTheme {
@@ -70,8 +73,16 @@ class MainActivity : ComponentActivity() {
                     onRestoreClick = viewModel::pressRestoreKey,
                     onPortToggle = viewModel::toggleJoystickPort,
                     onSoundToggle = viewModel::toggleSound,
-                    onControlsToggle = viewModel::toggleControlsVisibility
+                    onControlsToggle = viewModel::toggleControlsVisibility,
+                    onDisplaySizeChanged = viewModel::updateDisplayAspectRatio
                 )
+            }
+        }
+
+        window.decorView.post {
+            if (!isFinishing && !isDestroyed) {
+                configureImmersiveDisplayAndRefreshRate()
+                ensureModStoragePermissions()
             }
         }
     }
@@ -79,7 +90,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.onAppForegroundChanged(true)
-        configureImmersiveDisplayAndRefreshRate()
+        window.decorView.post {
+            if (!isFinishing && !isDestroyed) {
+                configureImmersiveDisplayAndRefreshRate()
+            }
+        }
         if (ModStorageManager.hasStorageAccessPermission(this)) {
             viewModel.refreshStorageAndMods()
         }
@@ -97,10 +112,26 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private fun applyFullBleedCutoutMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val params = window.attributes
+            val desiredMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            if (params.layoutInDisplayCutoutMode != desiredMode) {
+                params.layoutInDisplayCutoutMode = desiredMode
+                window.attributes = params
+            }
+        }
+    }
+
     private fun ensureModStoragePermissions() {
-        if (ModStorageManager.hasStorageAccessPermission(this)) {
+        if (hasPromptedStoragePermission || ModStorageManager.hasStorageAccessPermission(this)) {
             return
         }
+        hasPromptedStoragePermission = true
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             runCatching {
                 val intent = Intent(
@@ -124,7 +155,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun configureImmersiveDisplayAndRefreshRate() {
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        applyFullBleedCutoutMode()
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -139,11 +170,13 @@ class MainActivity : ComponentActivity() {
         if (currentDisplay != null) {
             val modes = currentDisplay.supportedModes
             val highestMode = modes.maxByOrNull { it.refreshRate }
-            if (highestMode != null) {
+            if (highestMode != null && highestMode.refreshRate != lastAppliedRefreshRate) {
+                lastAppliedRefreshRate = highestMode.refreshRate
                 val params = window.attributes
-                params.preferredDisplayModeId = highestMode.modeId
-                params.preferredRefreshRate = highestMode.refreshRate
-                window.attributes = params
+                if (params.preferredRefreshRate != highestMode.refreshRate) {
+                    params.preferredRefreshRate = highestMode.refreshRate
+                    window.attributes = params
+                }
             }
             viewModel.detectDeviceRefreshRateCap(this, currentDisplay)
         }
@@ -245,7 +278,8 @@ fun AlteredBeastScreen(
     onRestoreClick: () -> Unit,
     onPortToggle: () -> Unit,
     onSoundToggle: () -> Unit,
-    onControlsToggle: () -> Unit
+    onControlsToggle: () -> Unit,
+    onDisplaySizeChanged: (Float, Float) -> Unit = { _, _ -> }
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -263,13 +297,17 @@ fun AlteredBeastScreen(
                     .fillMaxSize()
                     .testTag("c64_screen_canvas")
             ) {
+                onDisplaySizeChanged(size.width, size.height)
                 if (frameImg != null && tick >= 0L) {
                     drawImage(
                         image = frameImg,
                         srcOffset = IntOffset.Zero,
                         srcSize = IntSize(320, 200),
                         dstOffset = IntOffset.Zero,
-                        dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                        dstSize = IntSize(
+                            kotlin.math.ceil(size.width.toDouble()).toInt().coerceAtLeast(1),
+                            kotlin.math.ceil(size.height.toDouble()).toInt().coerceAtLeast(1)
+                        ),
                         filterQuality = FilterQuality.None
                     )
                 }
