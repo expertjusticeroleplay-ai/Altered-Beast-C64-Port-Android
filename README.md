@@ -90,10 +90,10 @@ GZBeast reads and writes mods under the shared `GZBeast` directory. On Android 1
 
 GZBeast is an Android C64 game project. The supplied source archive contains Kotlin/Android code and LuaJ, but does not contain GZDoom source code or declare a GZDoom dependency. It should not be described as a GZDoom port or as being licensed under GZDoom's license on that basis. GZDoom is a separate project; its official repository identifies its code as GPL-3.0: [GZDoom on GitHub](https://github.com/ZDoom/gzdoom) · [GZDoom license](https://github.com/ZDoom/gzdoom/blob/master/LICENSE).
 
-The supplied archive does not include a project-wide license or documentation establishing redistribution rights for the included **Altered Beast** source and game assets. The embedded asset documentation credits Michael J. Archer and gives a 1989 development date. No blanket open-source license is claimed here for the application, game code, or bundled assets. Before redistribution or publication, identify the rights holders and obtain the permissions or licenses required for each component; review third-party dependency licenses separately. This README is not legal advice.
+The supplied archive does not include a project-wide license or documentation establishing redistribution rights for the included [Altered Beast](https://en.wikipedia.org/wiki/Altered_Beast) source and game assets. The embedded asset documentation credits Michael J. Archer and gives a 1989 development date. No blanket open-source license is claimed here for the application, game code, or bundled assets. Before redistribution or publication, identify the rights holders and obtain the permissions or licenses required for each component; review third-party dependency licenses separately. This README is not legal advice.
 
 ## Acknowledgements
 
-- The embedded Altered Beast source documentation credits **Michael J. Archer**.
+- The embedded Altered Beast source documentation credits [Michael J. Archer](https://github.com/milkeybabes/Altered-Beast)
 - GZBeast uses [LuaJ](https://github.com/luaj/luaj), a Lua implementation for Java.
 - GZBeast is distinct from [GZDoom](https://github.com/ZDoom/gzdoom); the links above refer to that separate project.
