@@ -1,0 +1,6 @@
+{
+  "summary":  "Rencana implementasi lengkap untuk port native Android Altered Beast (Commodore 64) dengan package com.alteredbeast.port, mencakup translasi 1:1 seluruh instruksi dan modul kode asli Michael J Archer (INTRO dan GAME), pemuatan aset biner tanpa kompresi, kontrol SVG melayang berdasarkan pemetaan CIA1 asli, perenderan piksel Nearest-Neighbor layar penuh, dan adaptasi frame rate otomatis sesuai refresh rate perangkat.",
+  "updatedAt":  "2026-11-08T13:09:38.778180582Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

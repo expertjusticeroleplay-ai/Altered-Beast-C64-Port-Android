@@ -1,0 +1,6 @@
+{
+  "name": "Altered Beast",
+  "description": "Native Android port of the classic Commodore 64 Altered Beast by Michael J Archer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

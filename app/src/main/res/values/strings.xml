@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Altered Beast</string>
+    <string name="control_fire">FIRE</string>
+    <string name="control_f1_one_player">F1 1P</string>
+    <string name="control_f7_two_players">F7 2P</string>
+    <string name="control_pause">PAUSE</string>
+    <string name="control_restore">RESTORE</string>
+    <string name="control_cheat">CHEAT</string>
+    <string name="control_port_1">PORT 1</string>
+    <string name="control_port_2">PORT 2</string>
+    <string name="control_audio">SID</string>
+    <string name="cd_dpad">Directional Pad</string>
+    <string name="cd_fire">Fire Button</string>
+    <string name="cd_f1">One Player F1</string>
+    <string name="cd_f7">Two Player F7</string>
+    <string name="cd_pause">Pause Shift Lock</string>
+    <string name="cd_restore">Restore Key</string>
+    <string name="cd_canvas">Altered Beast Commodore 64 Screen</string>
+</resources>
