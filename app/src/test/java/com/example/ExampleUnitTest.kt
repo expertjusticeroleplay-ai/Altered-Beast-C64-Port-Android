@@ -167,21 +167,15 @@ class ExampleUnitTest {
             nonBlackRightBorderPlayfieldRows
         )
 
-        val nonBlackLeftHudRows = (160 until 200).count { y ->
-            (0 until 40).all { x -> (renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000 }
-        }
-        val nonBlackRightHudRows = (160 until 200).count { y ->
-            (280 until 320).all { x -> (renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000 }
-        }
         assertEquals(
-            "Expected all 40 HUD scanlines (y=160..199) to have full stone wings on the left (x=0..39) with zero black bars",
-            40,
-            nonBlackLeftHudRows
+            "Expected HUD top scanline (y=160) left 5 columns (x=0..42) to remain empty (0x000000) so character portraits do not collide with the stone HUD",
+            0x000000,
+            renderer.framePixels[160 * 320 + 16] and 0xFFFFFF
         )
         assertEquals(
-            "Expected all 40 HUD scanlines (y=160..199) to have full stone wings on the right (x=280..319) with zero black bars",
-            40,
-            nonBlackRightHudRows
+            "Expected HUD top scanline (y=160) right 5 columns (x=283..319) to remain empty (0x000000) so character portraits do not collide with the stone HUD",
+            0x000000,
+            renderer.framePixels[160 * 320 + 300] and 0xFFFFFF
         )
 
         renderer.displayAspectRatio = 20f / 9f

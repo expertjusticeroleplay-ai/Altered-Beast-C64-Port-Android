@@ -193,61 +193,18 @@ class VicIIVideoRenderer {
         val rowScreenIndex = charRow * 40
 
         val isHudPanel = !bitmapMode && charBase == 0xB800 && charRow in 20..24
-        val effectiveXScroll = if (isHudPanel) 0 else xScroll
-        val hudWingBgColor = c64Palette[11]
-        val initialLineColor = if (isHudPanel) hudWingBgColor else bgColor0
+        val effectiveXScroll = if (isHudPanel) 3 else xScroll
 
         for (x in 0 until 320) {
-            charLinePixels[x] = initialLineColor
+            charLinePixels[x] = bgColor0
             charBgMask[x] = false
         }
 
         for (col in 0 until 40) {
             val screenAddr = (screenBase + rowScreenIndex + col) and 0xFFFF
-            var screenCode = ram[screenAddr].toInt() and 0xFF
-            var colorNibble = colorRam[(rowScreenIndex + col) and 0x03FF].toInt() and 0x0F
+            val screenCode = ram[screenAddr].toInt() and 0xFF
+            val colorNibble = colorRam[(rowScreenIndex + col) and 0x03FF].toInt() and 0x0F
             val baseX = col * 8 + effectiveXScroll
-
-            if (isHudPanel) {
-                val hudRowIdx = charRow - 20
-                if (col == 0 && screenCode == 0x0A) {
-                    screenCode = when (hudRowIdx) {
-                        0 -> 0x60
-                        1 -> 0x80
-                        2 -> 0xA0
-                        3 -> 0xC0
-                        else -> 0xE0
-                    }
-                    colorNibble = 0x09
-                } else if (col in 1..5 && (screenCode == 0x0A || col == 5)) {
-                    screenCode = when (hudRowIdx) {
-                        0 -> 0x63
-                        1 -> 0x83
-                        2 -> 0xA3
-                        3 -> 0xC3
-                        else -> 0xE3
-                    }
-                    colorNibble = 0x09
-                } else if (col in 34..38 && (screenCode == 0x0A || col == 34)) {
-                    screenCode = when (hudRowIdx) {
-                        0 -> 0x63
-                        1 -> 0x83
-                        2 -> 0xA3
-                        3 -> 0xC3
-                        else -> 0xE3
-                    }
-                    colorNibble = 0x09
-                } else if (col == 39 && screenCode == 0x0A) {
-                    screenCode = when (hudRowIdx) {
-                        0 -> 0x7D
-                        1 -> 0x9D
-                        2 -> 0xBD
-                        3 -> 0xDD
-                        else -> 0xFD
-                    }
-                    colorNibble = 0x09
-                }
-            }
 
             if (bitmapMode) {
                 val bmpAddr = (bitmapBase + rowScreenIndex * 8 + col * 8 + lineInChar) and 0xFFFF
@@ -291,7 +248,6 @@ class VicIIVideoRenderer {
             } else {
                 val charAddr = (charBase + screenCode * 8 + lineInChar) and 0xFFFF
                 val charByte = ram[charAddr].toInt() and 0xFF
-                val cellBgColor0 = if (isHudPanel && (col <= 5 || col >= 34)) hudWingBgColor else bgColor0
                 if (multiColorMode && (colorNibble and 0x08) != 0) {
                     val col3 = c64Palette[colorNibble and 0x07]
                     for (pair in 0 until 4) {
@@ -300,7 +256,7 @@ class VicIIVideoRenderer {
                             1 -> bgColor1
                             2 -> bgColor2
                             3 -> col3
-                            else -> cellBgColor0
+                            else -> bgColor0
                         }
                         val isFg = bits >= 2
                         val px0 = baseX + pair * 2
@@ -320,7 +276,7 @@ class VicIIVideoRenderer {
                         val isSet = ((charByte ushr (7 - bit)) and 0x01) != 0
                         val px = baseX + bit
                         if (px in 0 until 320) {
-                            charLinePixels[px] = if (isSet) fgCol else cellBgColor0
+                            charLinePixels[px] = if (isSet) fgCol else bgColor0
                             charBgMask[px] = isSet
                         }
                     }
@@ -374,10 +330,7 @@ class VicIIVideoRenderer {
                 val spRow = spriteMcRow[sp]
                 if (spRow !in 0 until 21) continue
                 val spXRaw = (vicRegs[sp * 2] and 0xFF) or (if ((msbX and mask) != 0) 0x100 else 0)
-                var rawScreenX = spXRaw - 24
-                if (isHudPanel && sp in 4..7 && rawScreenX >= 280) {
-                    rawScreenX -= 10
-                }
+                val rawScreenX = spXRaw - 24
                 val isXExpanded = (xExp and mask) != 0
                 val rawWidth = if (isXExpanded) 48 else 24
                 val isMultiColor = (multiColSprites and mask) != 0
