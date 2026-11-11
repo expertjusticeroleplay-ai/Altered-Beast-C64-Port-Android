@@ -1,124 +1,99 @@
-# Altered Beast — Commodore 64 Android Port
+# GZBeast
 
-A native Android port of the Commodore 64 (C64) version of *Altered Beast*, with an execution engine and renderer written in Kotlin. The app loads the included C64 materials, displays a VIC-II-style screen, and provides touch controls for landscape gameplay.
+GZBeast is a native Android application for the Commodore 64 version of **Altered Beast**. Built with Kotlin, it assembles and runs the bundled 6502/PDS game modules through a purpose-built C64 execution core, with VIC-II-style video rendering and SID-inspired audio synthesis.
+
+The app combines the game with a LuaJ-based mod system for scripts, runtime hooks, asset overrides, and graphics changes. Mods are discovered from shared storage and can interact with gameplay, memory, levels, and the 320 × 200 framebuffer.
 
 ## Features
 
-- Native Android app with a Jetpack Compose UI, landscape orientation, and immersive full-screen display.
-- Kotlin-based C64 engine: PDS assembler, execution core, VIC-II video renderer, and SID audio synthesizer.
-- C64 assets for INTRO and levels 1–5, including sprites, graphics, music, and `.PDS`, `.DIS`, and `.TAP` program data.
-- 320 × 200 game screen with nearest-neighbor filtering to preserve sharp pixels.
-- Touch controls: eight-way D-pad, FIRE, F1 (1 player), F7 (2 players), pause, restore, cheat, joystick port selection, audio, and HUD toggle.
-- Keyboard/gamepad input support, including arrow keys/WASD, Space/Enter, F1/F7, P, and Escape/Delete for restore.
-- 50 Hz PAL simulation and render pacing that follows the detected display refresh rate, with an FPS indicator in the HUD.
+- Landscape Android interface with on-screen directional and action controls, plus hardware-keyboard input.
+- C64 execution core with assembled intro and game code, level loading, joystick input, and PAL-frame stepping.
+- 320 × 200 rendering with a C64 palette, character and bitmap display modes, and hardware sprites.
+- Three-voice SID-style audio synthesis with an in-app sound toggle.
+- LuaJ mod loading, callbacks, memory and player APIs, PDS assembly patches, program-counter hooks, asset overrides, palette and level edits, and canvas drawing.
+- Shared-storage mod discovery and session logging.
 
-## Technology
+## Modding
 
-| Area | Technology |
-| --- | --- |
-| Language | Kotlin |
-| Platform | Android, `minSdk 24`, `targetSdk 36` |
-| UI | Jetpack Compose and Material 3 |
-| Build | Gradle Kotlin DSL, Android Gradle Plugin 9.1.1, Kotlin 2.2.10 |
-| Engine | `C64ExecutionCore`, `PdsNativeAssembler`, `VicIIVideoRenderer`, `SidAudioSynthesizer` |
-| Testing | JUnit 4, Robolectric, Compose UI tests |
-
-## Project structure
+On first launch, GZBeast creates its mod directory and Lua API guide in shared storage:
 
 ```text
-.
-├── app/
-│   └── src/
-│       ├── main/
-│       │   ├── assets/
-│       │   │   ├── GAME/       # C64 programs, level data, sprites, graphics, and music
-│       │   │   └── INTRO/      # Intro materials and related assets
-│       │   ├── java/com/example/
-│       │   │   ├── MainActivity.kt
-│       │   │   ├── engine/     # C64 execution, assembler, video, and audio
-│       │   │   └── ui/         # ViewModel, controls, and theme
-│       │   └── AndroidManifest.xml
-│       └── test/               # Unit tests and Robolectric UI tests
-├── gradle/                     # Version catalog and Gradle wrapper
-├── build.gradle.kts
-└── settings.gradle.kts
+/storage/emulated/0/GZBeast/
+└── mods/
+    ├── guide.txt
+    ├── session.log
+    └── my_mod.lua
 ```
 
-## Requirements
+Place `.lua` scripts in `mods/`. Scripts in subdirectories are discovered as well. The engine loads discovered scripts at startup and refreshes them when it detects storage changes. A session log is written to `mods/session.log` when the application exits.
 
-- Android Studio supporting Android Gradle Plugin 9.1.1, or an Android command-line environment.
-- JDK 17 to run Gradle 9.3.1. The app's source compatibility is set to Java 11.
-- Android SDK Platform 36 and compatible Android SDK Build-Tools.
-- An internet connection on the first build if dependencies or the Gradle distribution are not available locally.
+A minimal mod can use the `gz` host API:
 
-## Setup and run
+```lua
+function on_init()
+    gz.log("My mod is ready: " .. gz.version())
+end
 
-1. Clone or extract the repository, then open the project directory in Android Studio.
-2. Make sure Android SDK Platform 36 is installed and Gradle is using JDK 17.
-3. Sync the Gradle project.
-4. Run the `app` configuration on an Android emulator or device running API 24 or later. The app is designed for landscape orientation.
+function on_frame(frame, in_game, level)
+    if in_game then
+        gz.poke(0xCFFF, frame % 256)
+    end
+end
 
-Build a debug version from the terminal:
+function on_draw(frame, in_game, level)
+    gz.canvas.text(4, 4, "MY MOD", 0xFFFFCC00, 1)
+end
+```
+
+Global lifecycle hooks include `on_init`, `on_before_frame`, `on_frame`, `on_scanline`, `on_draw`, `on_level_load`, and `on_exit`. Mods can also register program-counter hooks with `gz.on_pc(address_or_symbol, callback)`. The `gz` API includes logging/version helpers, C64 memory and I/O access, CPU and symbolic-variable access, player/enemy/level controls, palette and canvas operations, asset read/write and override functions, and runtime assembly patching. See the generated `mods/guide.txt` for the complete API reference and examples.
+
+### Mod security
+
+Lua mods are executable code, not passive data. GZBeast initializes LuaJ with standard JSE globals and exposes powerful game and asset APIs; mods are **not an operating-system security sandbox**. Only install scripts you trust. Review a mod's source before running it, and avoid granting storage access when you do not trust its publisher.
+
+## Build
+
+Open the project in Android Studio with Android SDK Platform 36 and a compatible JDK/Android Gradle Plugin toolchain. The Android application module is `app`; the minimum supported Android API level is 24. The project configures Android Gradle Plugin 9.1.1, Kotlin 2.2.10, and Gradle 9.3.1. JDK 17 is required to run Gradle; Java source compatibility is set to 11.
+
+With Gradle 9.3.1 installed, build a debug APK from the project root:
 
 ```bash
-./gradlew assembleDebug
+gradle assembleDebug
 ```
 
-The debug APK is typically generated at:
-
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-Install it on a connected device or emulator:
+Run the local unit and Robolectric tests with:
 
 ```bash
-./gradlew installDebug
+gradle testDebugUnitTest
 ```
 
-## Testing
+The supplied archive includes `gradle/wrapper/gradle-wrapper.properties`, but does not include the wrapper launcher scripts or wrapper JAR. Use an installed compatible Gradle distribution, or generate a wrapper locally before using `./gradlew`.
 
-Run local unit tests, including Robolectric tests in the `test` source set:
+## Release signing
 
-```bash
-./gradlew testDebugUnitTest
-```
-
-Run instrumentation tests on a device or emulator:
-
-```bash
-./gradlew connectedDebugAndroidTest
-```
-
-Engine tests cover assembly of the INTRO module and five levels, visual and audio output, input, and several gameplay transitions. Compose tests check that the canvas and main controls are displayed.
-
-## Release build
-
-The `release` build type uses a signing configuration named `release`. Prepare a keystore and provide credentials through these environment variables:
-
-- `KEYSTORE_PATH` — keystore location. If unset, the build looks for `my-upload-key.jks` in the project root directory.
-- `STORE_PASSWORD` — keystore password.
-- `KEY_PASSWORD` — password for the key with alias `upload`.
-
-Example:
+The release build uses a signing configuration with key alias `upload`. Provide a keystore and credentials through environment variables:
 
 ```bash
 export KEYSTORE_PATH="/secure/location/upload-key.jks"
 export STORE_PASSWORD="<store-password>"
 export KEY_PASSWORD="<key-password>"
-./gradlew assembleRelease
+gradle assembleRelease
 ```
 
-Store credentials and the keystore securely; do not commit them to the repository.
+If `KEYSTORE_PATH` is unset, the build looks for `my-upload-key.jks` in the project root. Keep the keystore and passwords secure; do not commit them to the repository.
 
-## Credits and licensing
+## Shared storage
 
-The included source archive identifies the C64 *Altered Beast* materials with the credit `(c) Michael J Archer` and records a development period in 1989. *Altered Beast* is also a SEGA trademark and copyrighted property; see [SEGA's official Altered Beast page](https://games.sega.com/3dclassics/juouki.html).
+GZBeast reads and writes mods under the shared `GZBeast` directory. On Android 11 and later, the app requests **All files access** to discover and manage mod files. Grant this permission only if you intend to use the shared-storage mod workflow. Android distribution channels may impose additional requirements on apps that request broad file access.
 
-The project archive includes no license or evidence of permission granting distribution rights for the game, C64 source code, or assets. Accordingly, this repository grants no license to those materials. Rights to the game and third-party materials remain with their respective owners. Obtain written permission and applicable distribution rights before publishing or distributing a build that includes those materials.
+## Project relationship and licensing
 
-To avoid granting rights that are not established, no open-source license is applied to this entire repository. A license for demonstrably original Android code can only be determined after confirming the ownership and provenance of each part of that code, and must clearly exclude third-party game materials.
+GZBeast is an Android C64 game project. The supplied source archive contains Kotlin/Android code and LuaJ, but does not contain GZDoom source code or declare a GZDoom dependency. It should not be described as a GZDoom port or as being licensed under GZDoom's license on that basis. GZDoom is a separate project; its official repository identifies its code as GPL-3.0: [GZDoom on GitHub](https://github.com/ZDoom/gzdoom) · [GZDoom license](https://github.com/ZDoom/gzdoom/blob/master/LICENSE).
 
-## Contributing
+The supplied archive does not include a project-wide license or documentation establishing redistribution rights for the included **Altered Beast** source and game assets. The embedded asset documentation credits Michael J. Archer and gives a 1989 development date. No blanket open-source license is claimed here for the application, game code, or bundled assets. Before redistribution or publication, identify the rights holders and obtain the permissions or licenses required for each component; review third-party dependency licenses separately. This README is not legal advice.
 
-Focused contributions to the engine, renderer, audio, UI, or tests are welcome with context for the change and relevant test results. Do not include secrets, keystores, or assets without appropriate distribution rights.
+## Acknowledgements
+
+- The embedded Altered Beast source documentation credits **Michael J. Archer**.
+- GZBeast uses [LuaJ](https://github.com/luaj/luaj), a Lua implementation for Java.
+- GZBeast is distinct from [GZDoom](https://github.com/ZDoom/gzdoom); the links above refer to that separate project.
