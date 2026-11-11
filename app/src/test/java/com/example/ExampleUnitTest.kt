@@ -178,6 +178,44 @@ class ExampleUnitTest {
             renderer.framePixels[160 * 320 + 300] and 0xFFFFFF
         )
 
+        val symColTableL1 = level1Prog.symbols["COLTABLE"]!!
+        val symScreenDi = level1Prog.symbols["SCREENDI"]!!
+        val symXScroll = level1Prog.symbols["XSCROLL"]!!
+        val seenXScrolls = HashSet<Int>()
+        core.joyRight = true
+        for (scrollFrame in 0 until 96) {
+            core.runSinglePalFrame()
+            val curXScroll = core.ram[symXScroll].toInt() and 0x07
+            seenXScrolls.add(curXScroll)
+            val screenDi = core.ram[symScreenDi].toInt() and 0xFF
+            val activeScreenBase = if (screenDi == 0) 0xF000 else 0xF400
+            for (row in 0 until 20) {
+                for (col in 0 until 40) {
+                    val cellIdx = row * 40 + col
+                    val tile = core.ram[activeScreenBase + cellIdx].toInt() and 0xFF
+                    val actualColor = core.colorRam[cellIdx].toInt() and 0x0F
+                    val expectedTableColor = core.ram[symColTableL1 + tile].toInt() and 0x0F
+                    if (actualColor != 0x09 && actualColor != 0x0A) {
+                        assertEquals(
+                            "Mismatch in colorRam during camera scroll at frame=$scrollFrame xScroll=$curXScroll row=$row col=$col tile=$tile",
+                            expectedTableColor,
+                            actualColor
+                        )
+                    }
+                }
+            }
+            val leftRows = (0 until 160).count { y ->
+                (0 until 7).any { x -> (renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000 }
+            }
+            val rightRows = (0 until 160).count { y ->
+                (311 until 320).any { x -> (renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000 }
+            }
+            assertEquals("Expected left edge full-screen during scroll frame $scrollFrame (xScroll=$curXScroll)", 160, leftRows)
+            assertEquals("Expected right edge full-screen during scroll frame $scrollFrame (xScroll=$curXScroll)", 160, rightRows)
+        }
+        core.joyRight = false
+        assertEquals("Expected camera scroll test to step through all 8 XSCROLL values (0..7)", 8, seenXScrolls.size)
+
         renderer.displayAspectRatio = 20f / 9f
         core.runSinglePalFrame()
         val widescreenPlayerRows = (0 until 48).count { dy ->

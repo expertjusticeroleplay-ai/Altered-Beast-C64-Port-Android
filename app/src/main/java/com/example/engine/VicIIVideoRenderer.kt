@@ -40,24 +40,16 @@ class VicIIVideoRenderer {
     @Volatile
     var displayAspectRatio: Float = 1.6f
 
-    private val charLinePixels = IntArray(320)
-    private val charBgMask = BooleanArray(320)
     private val bgMaskLine = BooleanArray(320)
     private val spriteActive = BooleanArray(8)
     private val spriteMcRow = IntArray(8)
     private val spriteYExpandFlipFlop = BooleanArray(8)
 
-    private val spRenderNow = BooleanArray(8)
-    private val spRowVals = IntArray(8)
-    private val spRawStartX = IntArray(8)
-    private val spRawEndX = IntArray(8)
-    private val spIsXExpanded = BooleanArray(8)
-    private val spIsMultiColor = BooleanArray(8)
-    private val spBehindFg = BooleanArray(8)
-    private val spColorVals = IntArray(8)
-    private val spRowBitsVals = IntArray(8)
-    private val spGroupRawCenter = FloatArray(8)
-    private val spGroupMappedCenter = FloatArray(8)
+    private val stagedLeftColScreen = IntArray(25)
+    private val stagedLeftColColor = IntArray(25)
+    private val activeLeftColScreen = IntArray(25)
+    private val activeLeftColColor = IntArray(25)
+    private var hasActiveLeftCol = false
 
     private var lastPlayfieldBgColor0: Int = defaultPalette[0]
 
@@ -67,6 +59,27 @@ class VicIIVideoRenderer {
             spriteMcRow[sp] = 0
             spriteYExpandFlipFlop[sp] = false
         }
+    }
+
+    fun clearScrollEdgeHistory() {
+        stagedLeftColScreen.fill(0)
+        stagedLeftColColor.fill(0)
+        activeLeftColScreen.fill(0)
+        activeLeftColColor.fill(0)
+        hasActiveLeftCol = false
+    }
+
+    fun stageOutgoingLeftColumn(row: Int, screenCode: Int, colorNibble: Int) {
+        if (row in 0 until 25) {
+            stagedLeftColScreen[row] = screenCode and 0xFF
+            stagedLeftColColor[row] = colorNibble and 0x0F
+        }
+    }
+
+    fun commitOutgoingLeftColumn() {
+        System.arraycopy(stagedLeftColScreen, 0, activeLeftColScreen, 0, 25)
+        System.arraycopy(stagedLeftColColor, 0, activeLeftColColor, 0, 25)
+        hasActiveLeftCol = true
     }
 
     fun beginScanlineSprites(rasterY: Int, vicRegs: IntArray) {
@@ -121,6 +134,101 @@ class VicIIVideoRenderer {
                 spriteActive[sp] = false
                 spriteMcRow[sp] = 0
                 spriteYExpandFlipFlop[sp] = false
+            }
+        }
+    }
+
+    private fun renderCharacterColumn(
+        rowOffset: Int,
+        baseX: Int,
+        screenCode: Int,
+        colorNibble: Int,
+        lineInChar: Int,
+        charBase: Int,
+        bitmapBase: Int,
+        rowScreenIndex: Int,
+        colForBitmap: Int,
+        bitmapMode: Boolean,
+        multiColorMode: Boolean,
+        bgColor0: Int,
+        bgColor1: Int,
+        bgColor2: Int,
+        ram: ByteArray
+    ) {
+        if (bitmapMode) {
+            val bmpAddr = (bitmapBase + rowScreenIndex * 8 + colForBitmap * 8 + lineInChar) and 0xFFFF
+            val bmpByte = ram[bmpAddr].toInt() and 0xFF
+            if (multiColorMode) {
+                val col1 = c64Palette[(screenCode ushr 4) and 0x0F]
+                val col2 = c64Palette[screenCode and 0x0F]
+                val col3 = c64Palette[colorNibble]
+                for (pair in 0 until 4) {
+                    val bits = (bmpByte ushr (6 - pair * 2)) and 0x03
+                    val pxColor = when (bits) {
+                        1 -> col1
+                        2 -> col2
+                        3 -> col3
+                        else -> bgColor0
+                    }
+                    val isFg = bits >= 2
+                    val px0 = baseX + pair * 2
+                    val px1 = px0 + 1
+                    if (px0 in 0 until 320) {
+                        framePixels[rowOffset + px0] = pxColor
+                        bgMaskLine[px0] = isFg
+                    }
+                    if (px1 in 0 until 320) {
+                        framePixels[rowOffset + px1] = pxColor
+                        bgMaskLine[px1] = isFg
+                    }
+                }
+            } else {
+                val fgCol = c64Palette[(screenCode ushr 4) and 0x0F]
+                val bgCol = c64Palette[screenCode and 0x0F]
+                for (bit in 0 until 8) {
+                    val isSet = ((bmpByte ushr (7 - bit)) and 0x01) != 0
+                    val px = baseX + bit
+                    if (px in 0 until 320) {
+                        framePixels[rowOffset + px] = if (isSet) fgCol else bgCol
+                        bgMaskLine[px] = isSet
+                    }
+                }
+            }
+        } else {
+            val charAddr = (charBase + screenCode * 8 + lineInChar) and 0xFFFF
+            val charByte = ram[charAddr].toInt() and 0xFF
+            if (multiColorMode && (colorNibble and 0x08) != 0) {
+                val col3 = c64Palette[colorNibble and 0x07]
+                for (pair in 0 until 4) {
+                    val bits = (charByte ushr (6 - pair * 2)) and 0x03
+                    val pxColor = when (bits) {
+                        1 -> bgColor1
+                        2 -> bgColor2
+                        3 -> col3
+                        else -> bgColor0
+                    }
+                    val isFg = bits >= 2
+                    val px0 = baseX + pair * 2
+                    val px1 = px0 + 1
+                    if (px0 in 0 until 320) {
+                        framePixels[rowOffset + px0] = pxColor
+                        bgMaskLine[px0] = isFg
+                    }
+                    if (px1 in 0 until 320) {
+                        framePixels[rowOffset + px1] = pxColor
+                        bgMaskLine[px1] = isFg
+                    }
+                }
+            } else {
+                val fgCol = c64Palette[colorNibble]
+                for (bit in 0 until 8) {
+                    val isSet = ((charByte ushr (7 - bit)) and 0x01) != 0
+                    val px = baseX + bit
+                    if (px in 0 until 320) {
+                        framePixels[rowOffset + px] = if (isSet) fgCol else bgColor0
+                        bgMaskLine[px] = isSet
+                    }
+                }
             }
         }
     }
@@ -183,7 +291,6 @@ class VicIIVideoRenderer {
 
         val yScroll = if (forceHudSplit) 3 else (ctrl1 and 0x07)
         val xScroll = ctrl2 and 0x07
-        val is40Cols = (ctrl2 and 0x08) != 0
         val bitmapMode = if (forceHudSplit) false else ((ctrl1 and 0x20) != 0)
         val multiColorMode = if (forceHudSplit) true else ((ctrl2 and 0x10) != 0)
 
@@ -196,8 +303,38 @@ class VicIIVideoRenderer {
         val effectiveXScroll = if (isHudPanel) 3 else xScroll
 
         for (x in 0 until 320) {
-            charLinePixels[x] = bgColor0
-            charBgMask[x] = false
+            framePixels[rowOffset + x] = bgColor0
+            bgMaskLine[x] = false
+        }
+
+        if (!isHudPanel && effectiveXScroll > 0) {
+            val leftScreenCode = if (hasActiveLeftCol) {
+                activeLeftColScreen[charRow]
+            } else {
+                ram[(screenBase + rowScreenIndex) and 0xFFFF].toInt() and 0xFF
+            }
+            val leftColorNibble = if (hasActiveLeftCol) {
+                activeLeftColColor[charRow]
+            } else {
+                colorRam[rowScreenIndex and 0x03FF].toInt() and 0x0F
+            }
+            renderCharacterColumn(
+                rowOffset = rowOffset,
+                baseX = effectiveXScroll - 8,
+                screenCode = leftScreenCode,
+                colorNibble = leftColorNibble,
+                lineInChar = lineInChar,
+                charBase = charBase,
+                bitmapBase = bitmapBase,
+                rowScreenIndex = rowScreenIndex,
+                colForBitmap = 0,
+                bitmapMode = bitmapMode,
+                multiColorMode = multiColorMode,
+                bgColor0 = bgColor0,
+                bgColor1 = bgColor1,
+                bgColor2 = bgColor2,
+                ram = ram
+            )
         }
 
         for (col in 0 until 40) {
@@ -206,96 +343,23 @@ class VicIIVideoRenderer {
             val colorNibble = colorRam[(rowScreenIndex + col) and 0x03FF].toInt() and 0x0F
             val baseX = col * 8 + effectiveXScroll
 
-            if (bitmapMode) {
-                val bmpAddr = (bitmapBase + rowScreenIndex * 8 + col * 8 + lineInChar) and 0xFFFF
-                val bmpByte = ram[bmpAddr].toInt() and 0xFF
-                if (multiColorMode) {
-                    val col1 = c64Palette[(screenCode ushr 4) and 0x0F]
-                    val col2 = c64Palette[screenCode and 0x0F]
-                    val col3 = c64Palette[colorNibble]
-                    for (pair in 0 until 4) {
-                        val bits = (bmpByte ushr (6 - pair * 2)) and 0x03
-                        val pxColor = when (bits) {
-                            1 -> col1
-                            2 -> col2
-                            3 -> col3
-                            else -> bgColor0
-                        }
-                        val isFg = bits >= 2
-                        val px0 = baseX + pair * 2
-                        val px1 = px0 + 1
-                        if (px0 in 0 until 320) {
-                            charLinePixels[px0] = pxColor
-                            charBgMask[px0] = isFg
-                        }
-                        if (px1 in 0 until 320) {
-                            charLinePixels[px1] = pxColor
-                            charBgMask[px1] = isFg
-                        }
-                    }
-                } else {
-                    val fgCol = c64Palette[(screenCode ushr 4) and 0x0F]
-                    val bgCol = c64Palette[screenCode and 0x0F]
-                    for (bit in 0 until 8) {
-                        val isSet = ((bmpByte ushr (7 - bit)) and 0x01) != 0
-                        val px = baseX + bit
-                        if (px in 0 until 320) {
-                            charLinePixels[px] = if (isSet) fgCol else bgCol
-                            charBgMask[px] = isSet
-                        }
-                    }
-                }
-            } else {
-                val charAddr = (charBase + screenCode * 8 + lineInChar) and 0xFFFF
-                val charByte = ram[charAddr].toInt() and 0xFF
-                if (multiColorMode && (colorNibble and 0x08) != 0) {
-                    val col3 = c64Palette[colorNibble and 0x07]
-                    for (pair in 0 until 4) {
-                        val bits = (charByte ushr (6 - pair * 2)) and 0x03
-                        val pxColor = when (bits) {
-                            1 -> bgColor1
-                            2 -> bgColor2
-                            3 -> col3
-                            else -> bgColor0
-                        }
-                        val isFg = bits >= 2
-                        val px0 = baseX + pair * 2
-                        val px1 = px0 + 1
-                        if (px0 in 0 until 320) {
-                            charLinePixels[px0] = pxColor
-                            charBgMask[px0] = isFg
-                        }
-                        if (px1 in 0 until 320) {
-                            charLinePixels[px1] = pxColor
-                            charBgMask[px1] = isFg
-                        }
-                    }
-                } else {
-                    val fgCol = c64Palette[colorNibble]
-                    for (bit in 0 until 8) {
-                        val isSet = ((charByte ushr (7 - bit)) and 0x01) != 0
-                        val px = baseX + bit
-                        if (px in 0 until 320) {
-                            charLinePixels[px] = if (isSet) fgCol else bgColor0
-                            charBgMask[px] = isSet
-                        }
-                    }
-                }
-            }
-        }
-
-        val resample38Cols = !is40Cols && !isHudPanel
-        if (resample38Cols) {
-            for (dstX in 0 until 320) {
-                val srcX = 7 + (dstX * 304) / 320
-                framePixels[rowOffset + dstX] = charLinePixels[srcX]
-                bgMaskLine[dstX] = charBgMask[srcX]
-            }
-        } else {
-            for (x in 0 until 320) {
-                framePixels[rowOffset + x] = charLinePixels[x]
-                bgMaskLine[x] = charBgMask[x]
-            }
+            renderCharacterColumn(
+                rowOffset = rowOffset,
+                baseX = baseX,
+                screenCode = screenCode,
+                colorNibble = colorNibble,
+                lineInChar = lineInChar,
+                charBase = charBase,
+                bitmapBase = bitmapBase,
+                rowScreenIndex = rowScreenIndex,
+                colForBitmap = col,
+                bitmapMode = bitmapMode,
+                multiColorMode = multiColorMode,
+                bgColor0 = bgColor0,
+                bgColor1 = bgColor1,
+                bgColor2 = bgColor2,
+                ram = ram
+            )
         }
 
         val spriteEnable = vicRegs[0x15]
@@ -309,8 +373,7 @@ class VicIIVideoRenderer {
             val multiColor1 = c64Palette[vicRegs[0x26] and 0x0F]
             val spritePtrBase = (screenBase + 0x03F8) and 0xFFFF
 
-            for (sp in 0 until 8) {
-                spRenderNow[sp] = false
+            for (sp in 7 downTo 0) {
                 val mask = 1 shl sp
                 if ((spriteEnable and mask) == 0) continue
 
@@ -330,9 +393,8 @@ class VicIIVideoRenderer {
                 val spRow = spriteMcRow[sp]
                 if (spRow !in 0 until 21) continue
                 val spXRaw = (vicRegs[sp * 2] and 0xFF) or (if ((msbX and mask) != 0) 0x100 else 0)
-                val rawScreenX = spXRaw - 24
+                val screenX = spXRaw - 24
                 val isXExpanded = (xExp and mask) != 0
-                val rawWidth = if (isXExpanded) 48 else 24
                 val isMultiColor = (multiColSprites and mask) != 0
                 val behindFg = (bgPri and mask) != 0
                 val spColor = c64Palette[vicRegs[0x27 + sp] and 0x0F]
@@ -344,87 +406,9 @@ class VicIIVideoRenderer {
                 val b2 = ram[(dataAddr + 2) and 0xFFFF].toInt() and 0xFF
                 val rowBits = (b0 shl 16) or (b1 shl 8) or b2
 
-                spRenderNow[sp] = true
-                spRowVals[sp] = spRow
-                spRawStartX[sp] = rawScreenX
-                spRawEndX[sp] = rawScreenX + rawWidth
-                spIsXExpanded[sp] = isXExpanded
-                spIsMultiColor[sp] = isMultiColor
-                spBehindFg[sp] = behindFg
-                spColorVals[sp] = spColor
-                spRowBitsVals[sp] = rowBits
-            }
-
-            var s = 0
-            while (s < 8) {
-                if (!spRenderNow[s]) {
-                    s++
-                    continue
-                }
-                var groupEnd = s
-                if (!is40Cols || isHudPanel) {
-                    if ((s and 1) == 0 && s + 1 < 8 && spRenderNow[s + 1] &&
-                        spRowVals[s] == spRowVals[s + 1] &&
-                        spIsXExpanded[s] == spIsXExpanded[s + 1] &&
-                        kotlin.math.abs(spRawEndX[s] - spRawStartX[s + 1]) <= 1
-                    ) {
-                        groupEnd = s + 1
-                    }
-                } else {
-                    while (groupEnd + 1 < 8 && spRenderNow[groupEnd + 1] &&
-                        spRowVals[groupEnd] == spRowVals[groupEnd + 1] &&
-                        spIsXExpanded[groupEnd] == spIsXExpanded[groupEnd + 1] &&
-                        kotlin.math.abs(spRawEndX[groupEnd] - spRawStartX[groupEnd + 1]) <= 1
-                    ) {
-                        groupEnd++
-                    }
-                }
-
-                val gRawStart = spRawStartX[s]
-                val gRawEnd = spRawEndX[groupEnd]
-                val gRawCenter = (gRawStart + gRawEnd) * 0.5f
-                val gMappedCenter = if (resample38Cols) {
-                    (gRawCenter - 7f) * 320f / 304f
-                } else {
-                    gRawCenter
-                }
-                for (k in s..groupEnd) {
-                    spGroupRawCenter[k] = gRawCenter
-                    spGroupMappedCenter[k] = gMappedCenter
-                }
-                s = groupEnd + 1
-            }
-
-            val aspect = displayAspectRatio.coerceIn(1.2f, 2.6f)
-            val pixelAspect = (aspect / 1.6f).coerceIn(1.0f, 1.45f)
-
-            for (sp in 7 downTo 0) {
-                if (!spRenderNow[sp]) continue
-                val rowBits = spRowBitsVals[sp]
-                if (rowBits == 0) continue
-
-                val rawStart = spRawStartX[sp]
-                val rawWidth = spRawEndX[sp] - rawStart
-                val isXExpanded = spIsXExpanded[sp]
-                val isMultiColor = spIsMultiColor[sp]
-                val behindFg = spBehindFg[sp]
-                val spColor = spColorVals[sp]
-                val gRawCenter = spGroupRawCenter[sp]
-                val gMappedCenter = spGroupMappedCenter[sp]
-
-                val dstStartFloat = gMappedCenter + (rawStart - gRawCenter) / pixelAspect
-                val dstEndFloat = gMappedCenter + (spRawEndX[sp] - gRawCenter) / pixelAspect
-                val minPx = (dstStartFloat.toInt() - 1).coerceAtLeast(0)
-                val maxPx = (dstEndFloat.toInt() + 1).coerceAtMost(319)
-
-                for (px in minPx..maxPx) {
-                    val sampleRawX = gRawCenter + (px + 0.5f - gMappedCenter) * pixelAspect
-                    val relX = kotlin.math.floor((sampleRawX - rawStart).toDouble()).toInt()
-                    if (relX !in 0 until rawWidth) continue
-
-                    if (isMultiColor) {
-                        val pairWidth = if (isXExpanded) 4 else 2
-                        val pair = (relX / pairWidth).coerceIn(0, 11)
+                if (isMultiColor) {
+                    val pairWidth = if (isXExpanded) 4 else 2
+                    for (pair in 0 until 12) {
                         val bits = (rowBits ushr (22 - pair * 2)) and 0x03
                         if (bits == 0) continue
                         val pixelColor = when (bits) {
@@ -432,16 +416,29 @@ class VicIIVideoRenderer {
                             2 -> spColor
                             else -> multiColor1
                         }
-                        if (!behindFg || !bgMaskLine[px]) {
-                            framePixels[rowOffset + px] = pixelColor
+                        val startX = screenX + pair * pairWidth
+                        for (dx in 0 until pairWidth) {
+                            val px = startX + dx
+                            if (px in 0 until 320) {
+                                if (!behindFg || !bgMaskLine[px]) {
+                                    framePixels[rowOffset + px] = pixelColor
+                                }
+                            }
                         }
-                    } else {
-                        val bitWidth = if (isXExpanded) 2 else 1
-                        val bit = (relX / bitWidth).coerceIn(0, 23)
+                    }
+                } else {
+                    val bitWidth = if (isXExpanded) 2 else 1
+                    for (bit in 0 until 24) {
                         val isSet = ((rowBits ushr (23 - bit)) and 0x01) != 0
                         if (!isSet) continue
-                        if (!behindFg || !bgMaskLine[px]) {
-                            framePixels[rowOffset + px] = spColor
+                        val startX = screenX + bit * bitWidth
+                        for (dx in 0 until bitWidth) {
+                            val px = startX + dx
+                            if (px in 0 until 320) {
+                                if (!behindFg || !bgMaskLine[px]) {
+                                    framePixels[rowOffset + px] = spColor
+                                }
+                            }
                         }
                     }
                 }
