@@ -69,6 +69,10 @@ class SidAudioSynthesizer(initialSampleRate: Int = 48000) {
     private var isAppInForeground: Boolean = true
 
     @Volatile
+    var isPaused: Boolean = false
+        private set
+
+    @Volatile
     var soundEnabled: Boolean = true
 
     @Volatile
@@ -131,6 +135,10 @@ class SidAudioSynthesizer(initialSampleRate: Int = 48000) {
 
     fun setAppForeground(inForeground: Boolean) {
         isAppInForeground = inForeground
+    }
+
+    fun setPaused(paused: Boolean) {
+        isPaused = paused
     }
 
     fun start(context: Context? = null) {
@@ -208,6 +216,16 @@ class SidAudioSynthesizer(initialSampleRate: Int = 48000) {
             }
 
             while (isStreamingActive) {
+                if (isPaused) {
+                    runCatching {
+                        if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                            track.write(silenceChunk, 0, chunkSamples, AudioTrack.WRITE_BLOCKING)
+                        } else {
+                            Thread.sleep(5L)
+                        }
+                    }
+                    continue
+                }
                 if (!soundEnabled || !isAppInForeground) {
                     synchronized(stateLock) {
                         synthesizeSamplesLocked(workChunk, chunkSamples, muted = true)
@@ -371,6 +389,9 @@ class SidAudioSynthesizer(initialSampleRate: Int = 48000) {
 
     fun renderFrameSamples(samplesCount: Int = activeSampleRate / 50): ShortArray {
         val targetCount = samplesCount.coerceAtLeast(1)
+        if (isPaused) {
+            return ShortArray(targetCount)
+        }
         if (isStreamingActive) {
             val preview = lastFramePreview
             if (preview.size == targetCount) {

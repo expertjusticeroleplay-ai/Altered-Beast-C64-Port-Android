@@ -175,6 +175,7 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
                             frameTick = tickCounter,
                             isInGameMode = executionCore.inGameMode,
                             currentLevel = executionCore.currentLoadedLevel,
+                            pausePressed = executionCore.keyPausePressed,
                             deviceFpsCap = fpsCap.roundToInt(),
                             activeRenderFps = measuredFps
                         )
@@ -226,8 +227,10 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun setPausePressed(pressed: Boolean) {
-        executionCore.keyPausePressed = pressed
-        _uiState.update { it.copy(pausePressed = pressed) }
+        if (pressed) {
+            val active = executionCore.togglePauseMode()
+            _uiState.update { it.copy(pausePressed = active) }
+        }
     }
 
     fun setCheatPressed(pressed: Boolean) {
@@ -239,6 +242,7 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
 
     fun pressRestoreKey() {
         executionCore.triggerRestoreKey()
+        _uiState.update { it.copy(pausePressed = false) }
     }
 
     fun skipIntroToGame() {

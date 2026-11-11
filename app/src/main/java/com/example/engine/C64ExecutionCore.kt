@@ -141,9 +141,11 @@ class C64ExecutionCore(
     private var symJumpAdd = -1
     private var symAdd = -1
     private var symNAdd = -1
+    private var symPause = -1
 
     private val prevAltered = IntArray(2)
     private var jumpUpLatch = false
+    private var wasPausedLastFrame = false
 
     @Volatile
     var totalFramesRun: Long = 0L
@@ -251,6 +253,7 @@ class C64ExecutionCore(
         symJumpAdd = level1.symbols["JUMPADD"] ?: -1
         symAdd = level1.symbols["ADD"] ?: -1
         symNAdd = level1.symbols["NADD"] ?: -1
+        symPause = level1.symbols["PAUSE"] ?: -1
 
         for (lvl in 2..5) {
             levelPrograms[lvl] = assembler.assembleGameLevel(lvl)
@@ -347,6 +350,9 @@ class C64ExecutionCore(
 
         zpScreenEnable = base.symbols["SCREENENABLE"] ?: -1
         zpScreenTest = base.symbols["SCREENTEST"] ?: -1
+        if (symPause >= 0 && keyPausePressed) {
+            ram[symPause and 0xFFFF] = 1
+        }
     }
 
     private fun beastStandFrameForLevel(level: Int): Int {
@@ -431,6 +437,20 @@ class C64ExecutionCore(
         prevAltered[p] = 255
     }
 
+    fun togglePauseMode(): Boolean {
+        val next = !keyPausePressed
+        setPauseMode(next)
+        return next
+    }
+
+    fun setPauseMode(paused: Boolean) {
+        keyPausePressed = paused
+        sidSynthesizer.setPaused(paused)
+        if (inGameMode && symPause >= 0) {
+            ram[symPause and 0xFFFF] = (if (paused) 1 else 0).toByte()
+        }
+    }
+
     fun toggleCheatMode(): Boolean {
         val next = !cheatEnabled
         cheatEnabled = next
@@ -482,10 +502,30 @@ class C64ExecutionCore(
     }
 
     fun triggerRestoreKey() {
+        if (keyPausePressed) {
+            setPauseMode(false)
+        }
         pendingRestoreNmi = true
     }
 
     fun runSinglePalFrame() {
+        sidSynthesizer.setPaused(keyPausePressed)
+        if (keyPausePressed) {
+            wasPausedLastFrame = true
+            if (inGameMode && symPause >= 0) {
+                ram[symPause and 0xFFFF] = 1
+            }
+            if (totalFramesRun > 0L) {
+                sidSynthesizer.renderFrameSamples()
+                return
+            }
+        } else if (wasPausedLastFrame) {
+            wasPausedLastFrame = false
+            if (inGameMode && symPause >= 0) {
+                ram[symPause and 0xFFFF] = 0
+            }
+        }
+
         videoRenderer.resetFrameState()
         val frameNum = ++totalFramesRun
         val listener = modListener
@@ -1004,7 +1044,7 @@ class C64ExecutionCore(
                 if (keyF7Pressed) v = v and 0xF7
             }
             if ((activeRowMask and 0x02) == 0) {
-                if (keyPausePressed) v = v and 0x7F
+                if (keyPausePressed) return 0x7F
                 if (keyCheatPressed) v = v and 0xFB
             }
             if ((activeRowMask and 0x08) == 0) {

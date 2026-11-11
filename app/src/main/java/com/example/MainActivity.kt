@@ -180,8 +180,10 @@ class MainActivity : ComponentActivity() {
                 viewModel.setF7Pressed(true)
                 true
             }
-            KeyEvent.KEYCODE_P -> {
-                viewModel.setPausePressed(true)
+            KeyEvent.KEYCODE_P, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_BREAK -> {
+                if ((event?.repeatCount ?: 0) == 0) {
+                    viewModel.setPausePressed(true)
+                }
                 true
             }
             KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_ESCAPE -> {
@@ -223,8 +225,7 @@ class MainActivity : ComponentActivity() {
                 viewModel.setF7Pressed(false)
                 true
             }
-            KeyEvent.KEYCODE_P -> {
-                viewModel.setPausePressed(false)
+            KeyEvent.KEYCODE_P, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_BREAK -> {
                 true
             }
             else -> super.onKeyUp(keyCode, event)

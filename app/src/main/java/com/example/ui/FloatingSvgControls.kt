@@ -92,12 +92,14 @@ fun FloatingSvgControls(
                         onPressStateChange = onF7Change
                     )
                     FloatingSvgPillButton(
-                        label = stringResource(R.string.control_pause),
+                        label = if (uiState.pausePressed) "PAUSED" else stringResource(R.string.control_pause),
                         isActive = uiState.pausePressed,
                         accentColor = ArcadeGold,
                         iconType = SvgActionIcon.PAUSE,
                         testTag = "pause_button",
-                        onPressStateChange = onPauseChange
+                        onPressStateChange = { pressed ->
+                            if (pressed) onPauseChange(true)
+                        }
                     )
                     FloatingSvgPillButton(
                         label = stringResource(R.string.control_restore),

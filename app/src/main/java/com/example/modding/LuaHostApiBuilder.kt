@@ -788,7 +788,7 @@ class LuaHostApiBuilder(
                 t.get("fire").takeIf { !it.isnil() }?.let { core.joyFire = it.toboolean() }
                 t.get("f1").takeIf { !it.isnil() }?.let { core.keyF1Pressed = it.toboolean() }
                 t.get("f7").takeIf { !it.isnil() }?.let { core.keyF7Pressed = it.toboolean() }
-                t.get("pause").takeIf { !it.isnil() }?.let { core.keyPausePressed = it.toboolean() }
+                t.get("pause").takeIf { !it.isnil() }?.let { core.setPauseMode(it.toboolean()) }
                 t.get("cheat").takeIf { !it.isnil() }?.let {
                     val want = it.toboolean()
                     if (core.cheatEnabled != want) {

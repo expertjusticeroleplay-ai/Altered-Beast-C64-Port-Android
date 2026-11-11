@@ -184,11 +184,46 @@ class ExampleUnitTest {
         val symFrame = level1Prog.symbols["FRAME"]!!
         val symCount = level1Prog.symbols["COUNT"]!!
         val symSpeed = level1Prog.symbols["SPEED"]!!
+        val symPause = level1Prog.symbols["PAUSE"]!!
 
         assertTrue(
             "Expected valid Level 1 Wolf frame (23..32) immediately after Cheat ON",
             (core.ram[symFrame].toInt() and 0xFF) in 23..32
         )
+
+        val pausedNow = core.togglePauseMode()
+        assertTrue("Expected first togglePauseMode() to enable pause", pausedNow)
+        assertTrue(core.keyPausePressed)
+        assertTrue(sid.isPaused)
+        assertEquals(1, core.ram[symPause].toInt() and 0xFF)
+        val savedDdrA = core.cia1DdrA
+        val savedPortA = core.cia1PortA
+        core.writeMem(0xDC02, 0xFF)
+        core.writeMem(0xDC00, 0xFD)
+        assertEquals(0x7F, core.readMem(0xDC01))
+        core.cia1DdrA = savedDdrA
+        core.cia1PortA = savedPortA
+        val framesBeforePause = core.totalFramesRun
+        val xBeforePause = core.ram[symX].toInt() and 0xFF
+        val pixelsBeforePause = renderer.framePixels.copyOf()
+        core.joyRight = true
+        for (f in 0 until 10) {
+            core.runSinglePalFrame()
+        }
+        core.joyRight = false
+        assertEquals("Expected totalFramesRun to freeze while paused", framesBeforePause, core.totalFramesRun)
+        assertEquals("Expected player X to freeze while paused", xBeforePause, core.ram[symX].toInt() and 0xFF)
+        assertEquals("Expected PAUSE ZP to remain 1 while paused", 1, core.ram[symPause].toInt() and 0xFF)
+        assertTrue("Expected framePixels to remain intact while paused", pixelsBeforePause.contentEquals(renderer.framePixels))
+        assertTrue("Expected SID audio to output silence while paused", sid.renderFrameSamples().all { it.toInt() == 0 })
+
+        val unpausedNow = core.togglePauseMode()
+        assertFalse("Expected second togglePauseMode() to disable pause", unpausedNow)
+        assertFalse(core.keyPausePressed)
+        assertFalse(sid.isPaused)
+        assertEquals(0, core.ram[symPause].toInt() and 0xFF)
+        core.runSinglePalFrame()
+        assertEquals("Expected totalFramesRun to advance after unpausing", framesBeforePause + 1L, core.totalFramesRun)
 
         for (targetLevel in 2..5) {
             core.ram[symEndScroll] = 1
