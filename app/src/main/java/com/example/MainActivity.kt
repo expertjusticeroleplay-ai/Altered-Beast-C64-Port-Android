@@ -96,7 +96,6 @@ class MainActivity : ComponentActivity() {
 
     private fun ensureModStoragePermissions() {
         if (ModStorageManager.hasStorageAccessPermission(this)) {
-            viewModel.refreshStorageAndMods()
             return
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

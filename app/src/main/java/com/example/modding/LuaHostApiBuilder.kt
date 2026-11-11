@@ -1,10 +1,7 @@
 package com.example.modding
 
 import com.example.engine.C64ExecutionCore
-import org.luaj.vm2.LuaBoolean
 import org.luaj.vm2.LuaFunction
-import org.luaj.vm2.LuaInteger
-import org.luaj.vm2.LuaString
 import org.luaj.vm2.LuaTable
 import org.luaj.vm2.LuaValue
 import org.luaj.vm2.Varargs
@@ -22,11 +19,18 @@ class LuaHostApiBuilder(
     private val clearPcCallbacks: (Int) -> Unit
 ) {
 
+    init {
+        val ensureLuaValueInit = LuaValue.NIL
+        if (ensureLuaValueInit.isnil()) {
+            LuaValue.valueOf(0)
+        }
+    }
+
     fun buildGzTable(modName: String): LuaTable {
         val gz = LuaTable()
 
         gz.set("version", object : ZeroArgFunction() {
-            override fun call(): LuaValue = LuaString.valueOf("GZBeast-Lua-1.0")
+            override fun call(): LuaValue = LuaValue.valueOf("GZBeast-Lua-1.0")
         })
 
         gz.set("log", object : VarArgFunction() {
@@ -61,7 +65,7 @@ class LuaHostApiBuilder(
         gz.set("peek", object : OneArgFunction() {
             override fun call(addrArg: LuaValue): LuaValue {
                 val addr = addrArg.checkint() and 0xFFFF
-                return LuaInteger.valueOf(core.ram[addr].toInt() and 0xFF)
+                return LuaValue.valueOf(core.ram[addr].toInt() and 0xFF)
             }
         })
 
@@ -78,7 +82,7 @@ class LuaHostApiBuilder(
                 val addr = addrArg.checkint() and 0xFFFF
                 val lo = core.ram[addr].toInt() and 0xFF
                 val hi = core.ram[(addr + 1) and 0xFFFF].toInt() and 0xFF
-                return LuaInteger.valueOf((hi shl 8) or lo)
+                return LuaValue.valueOf((hi shl 8) or lo)
             }
         })
 
@@ -98,7 +102,7 @@ class LuaHostApiBuilder(
                 val len = lenArg.checkint().coerceIn(0, 65536)
                 val out = LuaTable(len, 0)
                 for (i in 0 until len) {
-                    out.rawset(i + 1, LuaInteger.valueOf(core.ram[(addr + i) and 0xFFFF].toInt() and 0xFF))
+                    out.rawset(i + 1, LuaValue.valueOf(core.ram[(addr + i) and 0xFFFF].toInt() and 0xFF))
                 }
                 return out
             }
@@ -119,7 +123,7 @@ class LuaHostApiBuilder(
 
         gz.set("read_io", object : OneArgFunction() {
             override fun call(addrArg: LuaValue): LuaValue {
-                return LuaInteger.valueOf(core.readMem(addrArg.checkint()))
+                return LuaValue.valueOf(core.readMem(addrArg.checkint()))
             }
         })
 
@@ -133,7 +137,7 @@ class LuaHostApiBuilder(
         gz.set("color_peek", object : OneArgFunction() {
             override fun call(offArg: LuaValue): LuaValue {
                 val off = offArg.checkint() and 0x03FF
-                return LuaInteger.valueOf(core.colorRam[off].toInt() and 0x0F)
+                return LuaValue.valueOf(core.colorRam[off].toInt() and 0x0F)
             }
         })
 
@@ -148,7 +152,7 @@ class LuaHostApiBuilder(
         gz.set("vic_get", object : OneArgFunction() {
             override fun call(regArg: LuaValue): LuaValue {
                 val reg = regArg.checkint() and 0x3F
-                return LuaInteger.valueOf(core.vicRegs[reg] and 0xFF)
+                return LuaValue.valueOf(core.vicRegs[reg] and 0xFF)
             }
         })
 
@@ -162,7 +166,7 @@ class LuaHostApiBuilder(
 
         gz.set("sid_get", object : OneArgFunction() {
             override fun call(regArg: LuaValue): LuaValue {
-                return LuaInteger.valueOf(core.sidSynthesizer.readRegister(regArg.checkint()))
+                return LuaValue.valueOf(core.sidSynthesizer.readRegister(regArg.checkint()))
             }
         })
 
@@ -191,18 +195,18 @@ class LuaHostApiBuilder(
         gz.set("cpu_get", object : ZeroArgFunction() {
             override fun call(): LuaValue {
                 val t = LuaTable()
-                t.set("a", LuaInteger.valueOf(core.regA and 0xFF))
-                t.set("x", LuaInteger.valueOf(core.regX and 0xFF))
-                t.set("y", LuaInteger.valueOf(core.regY and 0xFF))
-                t.set("sp", LuaInteger.valueOf(core.regSP and 0xFF))
-                t.set("pc", LuaInteger.valueOf(core.regPC and 0xFFFF))
-                t.set("raster", LuaInteger.valueOf(core.currentRaster))
-                t.set("n", LuaBoolean.valueOf(core.flagN))
-                t.set("v", LuaBoolean.valueOf(core.flagV))
-                t.set("d", LuaBoolean.valueOf(core.flagD))
-                t.set("i", LuaBoolean.valueOf(core.flagI))
-                t.set("z", LuaBoolean.valueOf(core.flagZ))
-                t.set("c", LuaBoolean.valueOf(core.flagC))
+                t.set("a", LuaValue.valueOf(core.regA and 0xFF))
+                t.set("x", LuaValue.valueOf(core.regX and 0xFF))
+                t.set("y", LuaValue.valueOf(core.regY and 0xFF))
+                t.set("sp", LuaValue.valueOf(core.regSP and 0xFF))
+                t.set("pc", LuaValue.valueOf(core.regPC and 0xFFFF))
+                t.set("raster", LuaValue.valueOf(core.currentRaster))
+                t.set("n", LuaValue.valueOf(core.flagN))
+                t.set("v", LuaValue.valueOf(core.flagV))
+                t.set("d", LuaValue.valueOf(core.flagD))
+                t.set("i", LuaValue.valueOf(core.flagI))
+                t.set("z", LuaValue.valueOf(core.flagZ))
+                t.set("c", LuaValue.valueOf(core.flagC))
                 return t
             }
         })
@@ -230,15 +234,15 @@ class LuaHostApiBuilder(
                 val name = nameArg.checkjstring()
                 val lvl = if (lvlArg.isnil()) core.currentLoadedLevel else lvlArg.checkint()
                 val addr = core.resolveSymbol(name, lvl) ?: return LuaValue.NIL
-                return LuaInteger.valueOf(addr)
+                return LuaValue.valueOf(addr)
             }
         })
 
         gz.set("sym_peek", object : TwoArgFunction() {
             override fun call(nameArg: LuaValue, offArg: LuaValue): LuaValue {
-                val base = core.resolveSymbol(nameArg.checkjstring()) ?: return LuaInteger.valueOf(0)
+                val base = core.resolveSymbol(nameArg.checkjstring()) ?: return LuaValue.valueOf(0)
                 val off = offArg.optint(0)
-                return LuaInteger.valueOf(core.ram[(base + off) and 0xFFFF].toInt() and 0xFF)
+                return LuaValue.valueOf(core.ram[(base + off) and 0xFFFF].toInt() and 0xFF)
             }
         })
 
@@ -262,17 +266,17 @@ class LuaHostApiBuilder(
         gz.set("on_pc", object : TwoArgFunction() {
             override fun call(targetArg: LuaValue, fnArg: LuaValue): LuaValue {
                 val fn = fnArg.checkfunction()
-                val addr = resolveAddressOrSymbol(targetArg) ?: return LuaBoolean.FALSE
+                val addr = resolveAddressOrSymbol(targetArg) ?: return LuaValue.FALSE
                 registerPcCallback(addr and 0xFFFF, fn)
-                return LuaBoolean.TRUE
+                return LuaValue.TRUE
             }
         })
 
         gz.set("clear_pc", object : OneArgFunction() {
             override fun call(targetArg: LuaValue): LuaValue {
-                val addr = resolveAddressOrSymbol(targetArg) ?: return LuaBoolean.FALSE
+                val addr = resolveAddressOrSymbol(targetArg) ?: return LuaValue.FALSE
                 clearPcCallbacks(addr and 0xFFFF)
-                return LuaBoolean.TRUE
+                return LuaValue.TRUE
             }
         })
     }
@@ -291,18 +295,18 @@ class LuaHostApiBuilder(
             override fun call(idxArg: LuaValue): LuaValue {
                 val p = (idxArg.optint(1) - 1).coerceIn(0, 1)
                 val t = LuaTable()
-                t.set("x", LuaInteger.valueOf(readSym("X", p)))
-                t.set("y", LuaInteger.valueOf(readSym("Y", p)))
-                t.set("dir", LuaInteger.valueOf(readSym("DIR", p)))
-                t.set("action", LuaInteger.valueOf(readSym("ACTION", p)))
-                t.set("frame", LuaInteger.valueOf(readSym("FRAME", p)))
-                t.set("up", LuaInteger.valueOf(readSym("UP", p)))
-                t.set("lives", LuaInteger.valueOf(readSym("LIVES", p)))
-                t.set("hits", LuaInteger.valueOf(readSym("HITS", p)))
-                t.set("balls", LuaInteger.valueOf(readSym("BALLS", p)))
-                t.set("altered", LuaInteger.valueOf(readSym("ALTERED", p)))
-                t.set("blanking", LuaInteger.valueOf(readSym("BLANKING", p)))
-                t.set("attached", LuaInteger.valueOf(readSym("ATTACHED", p)))
+                t.set("x", LuaValue.valueOf(readSym("X", p)))
+                t.set("y", LuaValue.valueOf(readSym("Y", p)))
+                t.set("dir", LuaValue.valueOf(readSym("DIR", p)))
+                t.set("action", LuaValue.valueOf(readSym("ACTION", p)))
+                t.set("frame", LuaValue.valueOf(readSym("FRAME", p)))
+                t.set("up", LuaValue.valueOf(readSym("UP", p)))
+                t.set("lives", LuaValue.valueOf(readSym("LIVES", p)))
+                t.set("hits", LuaValue.valueOf(readSym("HITS", p)))
+                t.set("balls", LuaValue.valueOf(readSym("BALLS", p)))
+                t.set("altered", LuaValue.valueOf(readSym("ALTERED", p)))
+                t.set("blanking", LuaValue.valueOf(readSym("BLANKING", p)))
+                t.set("attached", LuaValue.valueOf(readSym("ATTACHED", p)))
                 return t
             }
         })
@@ -352,15 +356,15 @@ class LuaHostApiBuilder(
             override fun call(slotArg: LuaValue): LuaValue {
                 val s = slotArg.checkint().coerceIn(2, 7)
                 val t = LuaTable()
-                t.set("slot", LuaInteger.valueOf(s))
-                t.set("id", LuaInteger.valueOf(readSym("ENEMY", s)))
-                t.set("x", LuaInteger.valueOf(readSym("X", s)))
-                t.set("y", LuaInteger.valueOf(readSym("Y", s)))
-                t.set("dir", LuaInteger.valueOf(readSym("DIR", s)))
-                t.set("action", LuaInteger.valueOf(readSym("ACTION", s)))
-                t.set("frame", LuaInteger.valueOf(readSym("FRAME", s)))
-                t.set("up", LuaInteger.valueOf(readSym("UP", s)))
-                t.set("hits", LuaInteger.valueOf(readSym("EHITS", s)))
+                t.set("slot", LuaValue.valueOf(s))
+                t.set("id", LuaValue.valueOf(readSym("ENEMY", s)))
+                t.set("x", LuaValue.valueOf(readSym("X", s)))
+                t.set("y", LuaValue.valueOf(readSym("Y", s)))
+                t.set("dir", LuaValue.valueOf(readSym("DIR", s)))
+                t.set("action", LuaValue.valueOf(readSym("ACTION", s)))
+                t.set("frame", LuaValue.valueOf(readSym("FRAME", s)))
+                t.set("up", LuaValue.valueOf(readSym("UP", s)))
+                t.set("hits", LuaValue.valueOf(readSym("EHITS", s)))
                 return t
             }
         })
@@ -437,11 +441,11 @@ class LuaHostApiBuilder(
         level.set("get", object : ZeroArgFunction() {
             override fun call(): LuaValue {
                 val t = LuaTable()
-                t.set("level", LuaInteger.valueOf(core.currentLoadedLevel))
-                t.set("in_game", LuaBoolean.valueOf(core.inGameMode))
-                t.set("scroll", LuaInteger.valueOf(readSym("SCROLL", 0)))
-                t.set("end_scroll", LuaInteger.valueOf(readSym("ENDSCROLL", 0)))
-                t.set("boss_killed", LuaInteger.valueOf(readSym("KILLED", 0)))
+                t.set("level", LuaValue.valueOf(core.currentLoadedLevel))
+                t.set("in_game", LuaValue.valueOf(core.inGameMode))
+                t.set("scroll", LuaValue.valueOf(readSym("SCROLL", 0)))
+                t.set("end_scroll", LuaValue.valueOf(readSym("ENDSCROLL", 0)))
+                t.set("boss_killed", LuaValue.valueOf(readSym("KILLED", 0)))
                 return t
             }
         })
@@ -472,7 +476,7 @@ class LuaHostApiBuilder(
                 val charsetBase = core.resolveSymbol("CHARSET") ?: 0xF800
                 val out = LuaTable(8, 0)
                 for (i in 0 until 8) {
-                    out.rawset(i + 1, LuaInteger.valueOf(core.ram[(charsetBase + idx * 8 + i) and 0xFFFF].toInt() and 0xFF))
+                    out.rawset(i + 1, LuaValue.valueOf(core.ram[(charsetBase + idx * 8 + i) and 0xFFFF].toInt() and 0xFF))
                 }
                 return out
             }
@@ -512,7 +516,7 @@ class LuaHostApiBuilder(
         val pal = LuaTable()
         pal.set("get", object : OneArgFunction() {
             override fun call(idxArg: LuaValue): LuaValue {
-                return LuaInteger.valueOf(core.videoRenderer.getPaletteColor(idxArg.checkint()))
+                return LuaValue.valueOf(core.videoRenderer.getPaletteColor(idxArg.checkint()))
             }
         })
         pal.set("set", object : TwoArgFunction() {
@@ -538,7 +542,7 @@ class LuaHostApiBuilder(
                 val count = countArg.optint(64).coerceIn(1, 4096)
                 val out = LuaTable(count, 0)
                 for (i in 0 until count) {
-                    out.rawset(i + 1, LuaInteger.valueOf(core.ram[(addr + i) and 0xFFFF].toInt() and 0xFF))
+                    out.rawset(i + 1, LuaValue.valueOf(core.ram[(addr + i) and 0xFFFF].toInt() and 0xFF))
                 }
                 return out
             }
@@ -571,7 +575,7 @@ class LuaHostApiBuilder(
                     val bytes = sprites[sIdx]
                     val spTable = LuaTable(64, 0)
                     for (bIdx in bytes.indices) {
-                        spTable.rawset(bIdx + 1, LuaInteger.valueOf(bytes[bIdx].toInt() and 0xFF))
+                        spTable.rawset(bIdx + 1, LuaValue.valueOf(bytes[bIdx].toInt() and 0xFF))
                     }
                     out.rawset(sIdx + 1, spTable)
                 }
@@ -684,7 +688,7 @@ class LuaHostApiBuilder(
 
         asset.set("exists", object : OneArgFunction() {
             override fun call(relArg: LuaValue): LuaValue {
-                return LuaBoolean.valueOf(assetRouter.modFileExists(relArg.checkjstring()))
+                return LuaValue.valueOf(assetRouter.modFileExists(relArg.checkjstring()))
             }
         })
 
@@ -693,7 +697,7 @@ class LuaHostApiBuilder(
                 val bytes = assetRouter.readModFileBytes(relArg.checkjstring()) ?: return LuaValue.NIL
                 val out = LuaTable(bytes.size, 0)
                 for (i in bytes.indices) {
-                    out.rawset(i + 1, LuaInteger.valueOf(bytes[i].toInt() and 0xFF))
+                    out.rawset(i + 1, LuaValue.valueOf(bytes[i].toInt() and 0xFF))
                 }
                 return out
             }
@@ -707,20 +711,20 @@ class LuaHostApiBuilder(
                 for (i in 1..len) {
                     bytes[i - 1] = (tbl.rawget(i).optint(0) and 0xFF).toByte()
                 }
-                return LuaBoolean.valueOf(assetRouter.writeModFileBytes(relArg.checkjstring(), bytes))
+                return LuaValue.valueOf(assetRouter.writeModFileBytes(relArg.checkjstring(), bytes))
             }
         })
 
         asset.set("read_text", object : OneArgFunction() {
             override fun call(relArg: LuaValue): LuaValue {
                 val txt = assetRouter.readModFileText(relArg.checkjstring()) ?: return LuaValue.NIL
-                return LuaString.valueOf(txt)
+                return LuaValue.valueOf(txt)
             }
         })
 
         asset.set("write_text", object : TwoArgFunction() {
             override fun call(relArg: LuaValue, txtArg: LuaValue): LuaValue {
-                return LuaBoolean.valueOf(assetRouter.writeModFileText(relArg.checkjstring(), txtArg.checkjstring()))
+                return LuaValue.valueOf(assetRouter.writeModFileText(relArg.checkjstring(), txtArg.checkjstring()))
             }
         })
 
@@ -730,7 +734,7 @@ class LuaHostApiBuilder(
                 val files = assetRouter.listModFiles(sub)
                 val out = LuaTable(files.size, 0)
                 for (i in files.indices) {
-                    out.rawset(i + 1, LuaString.valueOf(files[i]))
+                    out.rawset(i + 1, LuaValue.valueOf(files[i]))
                 }
                 return out
             }
@@ -742,14 +746,14 @@ class LuaHostApiBuilder(
         val asm = LuaTable()
         asm.set("patch", object : TwoArgFunction() {
             override fun call(orgArg: LuaValue, srcArg: LuaValue): LuaValue {
-                val org = resolveAddressOrSymbol(orgArg) ?: return LuaInteger.valueOf(0)
+                val org = resolveAddressOrSymbol(orgArg) ?: return LuaValue.valueOf(0)
                 val written = core.assembler.assembleSnippet(
                     orgAddress = org,
                     pdsSource = srcArg.checkjstring(),
                     baseSymbols = core.currentSymbolMap(),
                     targetRam = core.ram
                 )
-                return LuaInteger.valueOf(written)
+                return LuaValue.valueOf(written)
             }
         })
         return asm
@@ -760,16 +764,16 @@ class LuaHostApiBuilder(
         inp.set("get", object : ZeroArgFunction() {
             override fun call(): LuaValue {
                 val t = LuaTable()
-                t.set("up", LuaBoolean.valueOf(core.joyUp))
-                t.set("down", LuaBoolean.valueOf(core.joyDown))
-                t.set("left", LuaBoolean.valueOf(core.joyLeft))
-                t.set("right", LuaBoolean.valueOf(core.joyRight))
-                t.set("fire", LuaBoolean.valueOf(core.joyFire))
-                t.set("f1", LuaBoolean.valueOf(core.keyF1Pressed))
-                t.set("f7", LuaBoolean.valueOf(core.keyF7Pressed))
-                t.set("pause", LuaBoolean.valueOf(core.keyPausePressed))
-                t.set("cheat", LuaBoolean.valueOf(core.cheatEnabled))
-                t.set("port", LuaInteger.valueOf(core.joystickPort))
+                t.set("up", LuaValue.valueOf(core.joyUp))
+                t.set("down", LuaValue.valueOf(core.joyDown))
+                t.set("left", LuaValue.valueOf(core.joyLeft))
+                t.set("right", LuaValue.valueOf(core.joyRight))
+                t.set("fire", LuaValue.valueOf(core.joyFire))
+                t.set("f1", LuaValue.valueOf(core.keyF1Pressed))
+                t.set("f7", LuaValue.valueOf(core.keyF7Pressed))
+                t.set("pause", LuaValue.valueOf(core.keyPausePressed))
+                t.set("cheat", LuaValue.valueOf(core.cheatEnabled))
+                t.set("port", LuaValue.valueOf(core.joystickPort))
                 return t
             }
         })
@@ -799,7 +803,7 @@ class LuaHostApiBuilder(
 
     private fun readSym(name: String, offset: Int): Int {
         val base = core.resolveSymbol(name) ?: return 0
-        return core.ram[(base + offset) and 0xFFFF].toInt() and 0xFF
+        return core.ram[(base + offset) and 0xFFFF].toInt() and 0xFFFF and 0xFF
     }
 
     private fun writeSym(name: String, offset: Int, value: Int) {

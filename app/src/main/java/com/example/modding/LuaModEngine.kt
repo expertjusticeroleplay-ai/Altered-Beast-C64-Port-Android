@@ -2,9 +2,7 @@ package com.example.modding
 
 import com.example.engine.C64ExecutionCore
 import com.example.engine.ModExecutionListener
-import org.luaj.vm2.LuaBoolean
 import org.luaj.vm2.LuaFunction
-import org.luaj.vm2.LuaInteger
 import org.luaj.vm2.LuaValue
 import org.luaj.vm2.lib.jse.JsePlatform
 import java.io.File
@@ -19,6 +17,7 @@ class LuaModEngine(
     val assetRouter: ModAssetRouter
 ) : ModExecutionListener {
 
+    private val engineLock = Any()
     private val canvasRenderer = ModCanvasRenderer(core.videoRenderer.framePixels, assetRouter)
     private val initHooks = ArrayList<NamedLuaHook>()
     private val beforeFrameHooks = ArrayList<NamedLuaHook>()
@@ -31,31 +30,86 @@ class LuaModEngine(
     private val pcHookMask = BooleanArray(65536)
     private val pcHookTable = HashMap<Int, MutableList<LuaFunction>>()
 
+    @Volatile
     override var hasBeforeFrameHooks: Boolean = false
         private set
+
+    @Volatile
     override var hasAfterFrameHooks: Boolean = false
         private set
+
+    @Volatile
     override var hasScanlineHooks: Boolean = false
         private set
+
+    @Volatile
     override var hasDrawHooks: Boolean = false
         private set
+
+    @Volatile
     override var hasPcHooks: Boolean = false
         private set
 
     val loadedModNames = ArrayList<String>()
 
+    @Volatile
+    private var lastStorageSignature: String? = null
+
     init {
+        val preload = LuaValue.NIL
+        if (preload.isnil()) {
+            LuaValue.valueOf(0)
+            LuaValue.valueOf(true)
+            LuaValue.valueOf("")
+        }
         core.modListener = this
     }
 
-    fun initializeFromStorage(customRootDir: File? = null): StorageInitializationReport {
-        val report = ModStorageManager.initializeAndVerifyStorage(customRootDir)
+    fun initializeFromStorage(
+        customRootDir: File? = null,
+        resetLogSession: Boolean = false
+    ): StorageInitializationReport = synchronized(engineLock) {
+        val report = ModStorageManager.initializeAndVerifyStorage(customRootDir, resetLogSession)
         assetRouter.modsDir = report.modsDir
         loadLuaFiles(report.discoveredLuaFiles, report.modsDir)
-        return report
+        lastStorageSignature = computeStorageSignature(report.modsDir, report.guideFile, report.discoveredLuaFiles)
+        report
     }
 
-    fun loadLuaFiles(files: List<File>, baseModsDir: File = assetRouter.modsDir) {
+    fun refreshFromStorageIfChanged(customRootDir: File? = null): Boolean = synchronized(engineLock) {
+        val rootDir = customRootDir ?: ModStorageManager.resolveDefaultRootDirectory()
+        val gzBeastDir = File(rootDir, ModStorageManager.GZBEAST_FOLDER_NAME)
+        val modsDir = File(gzBeastDir, ModStorageManager.MODS_FOLDER_NAME)
+        val guideFile = File(modsDir, ModStorageManager.GUIDE_FILE_NAME)
+
+        if (lastStorageSignature != null &&
+            gzBeastDir.exists() &&
+            modsDir.exists() &&
+            guideFile.exists() &&
+            guideFile.length() == GuideDocumentation.EXPECTED_BYTE_SIZE
+        ) {
+            val currentLuaFiles = ModStorageManager.discoverLuaScripts(modsDir)
+            val currentSig = computeStorageSignature(modsDir, guideFile, currentLuaFiles)
+            if (currentSig == lastStorageSignature) {
+                return false
+            }
+        }
+
+        val report = initializeFromStorage(customRootDir, resetLogSession = false)
+        return report.discoveredLuaFiles.isNotEmpty()
+    }
+
+    private fun computeStorageSignature(modsDir: File, guideFile: File, luaFiles: List<File>): String {
+        val sb = StringBuilder()
+        sb.append(modsDir.absolutePath).append('|')
+        sb.append(if (guideFile.exists()) guideFile.length() else -1L).append('|')
+        for (f in luaFiles) {
+            sb.append(f.absolutePath).append(':').append(f.length()).append(':').append(f.lastModified()).append(';')
+        }
+        return sb.toString()
+    }
+
+    fun loadLuaFiles(files: List<File>, baseModsDir: File = assetRouter.modsDir) = synchronized(engineLock) {
         clearLoadedMods()
         assetRouter.modsDir = baseModsDir
         for (file in files) {
@@ -71,7 +125,7 @@ class LuaModEngine(
         refreshHookFlags()
     }
 
-    fun loadModScript(modName: String, luaSourceCode: String): Boolean {
+    fun loadModScript(modName: String, luaSourceCode: String): Boolean = synchronized(engineLock) {
         return try {
             val globals = JsePlatform.standardGlobals()
             val apiBuilder = LuaHostApiBuilder(
@@ -106,7 +160,7 @@ class LuaModEngine(
         }
     }
 
-    fun clearLoadedMods() {
+    fun clearLoadedMods() = synchronized(engineLock) {
         initHooks.clear()
         beforeFrameHooks.clear()
         afterFrameHooks.clear()
@@ -132,7 +186,7 @@ class LuaModEngine(
         }
     }
 
-    private fun registerPcHook(address: Int, fn: LuaFunction) {
+    private fun registerPcHook(address: Int, fn: LuaFunction) = synchronized(engineLock) {
         val addr = address and 0xFFFF
         val list = pcHookTable.getOrPut(addr) { ArrayList(2) }
         list.add(fn)
@@ -140,7 +194,7 @@ class LuaModEngine(
         hasPcHooks = true
     }
 
-    private fun clearPcHook(address: Int) {
+    private fun clearPcHook(address: Int) = synchronized(engineLock) {
         val addr = address and 0xFFFF
         pcHookTable.remove(addr)
         pcHookMask[addr] = false
@@ -159,7 +213,8 @@ class LuaModEngine(
         return pcHookMask[pc and 0xFFFF]
     }
 
-    override fun onEngineInitialized() {
+    override fun onEngineInitialized() = synchronized(engineLock) {
+        if (initHooks.isEmpty()) return
         for (i in 0 until initHooks.size) {
             val hook = initHooks[i]
             try {
@@ -170,10 +225,11 @@ class LuaModEngine(
         }
     }
 
-    override fun onBeforeFrame(frameCount: Long, inGame: Boolean, currentLevel: Int) {
-        val fVal = LuaInteger.valueOf(frameCount.toInt())
-        val gVal = LuaBoolean.valueOf(inGame)
-        val lVal = LuaInteger.valueOf(currentLevel)
+    override fun onBeforeFrame(frameCount: Long, inGame: Boolean, currentLevel: Int) = synchronized(engineLock) {
+        if (beforeFrameHooks.isEmpty()) return
+        val fVal = LuaValue.valueOf(frameCount.toInt())
+        val gVal = LuaValue.valueOf(inGame)
+        val lVal = LuaValue.valueOf(currentLevel)
         for (i in 0 until beforeFrameHooks.size) {
             val hook = beforeFrameHooks[i]
             try {
@@ -184,10 +240,11 @@ class LuaModEngine(
         }
     }
 
-    override fun onAfterFrame(frameCount: Long, inGame: Boolean, currentLevel: Int) {
-        val fVal = LuaInteger.valueOf(frameCount.toInt())
-        val gVal = LuaBoolean.valueOf(inGame)
-        val lVal = LuaInteger.valueOf(currentLevel)
+    override fun onAfterFrame(frameCount: Long, inGame: Boolean, currentLevel: Int) = synchronized(engineLock) {
+        if (afterFrameHooks.isEmpty()) return
+        val fVal = LuaValue.valueOf(frameCount.toInt())
+        val gVal = LuaValue.valueOf(inGame)
+        val lVal = LuaValue.valueOf(currentLevel)
         for (i in 0 until afterFrameHooks.size) {
             val hook = afterFrameHooks[i]
             try {
@@ -198,10 +255,11 @@ class LuaModEngine(
         }
     }
 
-    override fun onScanline(rasterY: Int, inGame: Boolean, currentLevel: Int) {
-        val rVal = LuaInteger.valueOf(rasterY)
-        val gVal = LuaBoolean.valueOf(inGame)
-        val lVal = LuaInteger.valueOf(currentLevel)
+    override fun onScanline(rasterY: Int, inGame: Boolean, currentLevel: Int) = synchronized(engineLock) {
+        if (scanlineHooks.isEmpty()) return
+        val rVal = LuaValue.valueOf(rasterY)
+        val gVal = LuaValue.valueOf(inGame)
+        val lVal = LuaValue.valueOf(currentLevel)
         for (i in 0 until scanlineHooks.size) {
             val hook = scanlineHooks[i]
             try {
@@ -212,10 +270,11 @@ class LuaModEngine(
         }
     }
 
-    override fun onDraw(frameCount: Long, inGame: Boolean, currentLevel: Int) {
-        val fVal = LuaInteger.valueOf(frameCount.toInt())
-        val gVal = LuaBoolean.valueOf(inGame)
-        val lVal = LuaInteger.valueOf(currentLevel)
+    override fun onDraw(frameCount: Long, inGame: Boolean, currentLevel: Int) = synchronized(engineLock) {
+        if (drawHooks.isEmpty()) return
+        val fVal = LuaValue.valueOf(frameCount.toInt())
+        val gVal = LuaValue.valueOf(inGame)
+        val lVal = LuaValue.valueOf(currentLevel)
         for (i in 0 until drawHooks.size) {
             val hook = drawHooks[i]
             try {
@@ -226,9 +285,10 @@ class LuaModEngine(
         }
     }
 
-    override fun onLevelLoad(levelId: Int, fileId: Int) {
-        val lVal = LuaInteger.valueOf(levelId)
-        val fVal = LuaInteger.valueOf(fileId)
+    override fun onLevelLoad(levelId: Int, fileId: Int) = synchronized(engineLock) {
+        if (levelLoadHooks.isEmpty()) return
+        val lVal = LuaValue.valueOf(levelId)
+        val fVal = LuaValue.valueOf(fileId)
         for (i in 0 until levelLoadHooks.size) {
             val hook = levelLoadHooks[i]
             try {
@@ -239,10 +299,11 @@ class LuaModEngine(
         }
     }
 
-    override fun onPcHook(pc: Int): Boolean {
+    override fun onPcHook(pc: Int): Boolean = synchronized(engineLock) {
         val addr = pc and 0xFFFF
-        val callbacks = pcHookTable[addr] ?: return false
-        val pcVal = LuaInteger.valueOf(addr)
+        val callbacks = pcHookTable[addr]
+        if (callbacks == null || callbacks.isEmpty()) return false
+        val pcVal = LuaValue.valueOf(addr)
         var skipOriginal = false
         for (i in 0 until callbacks.size) {
             val fn = callbacks[i]
@@ -258,13 +319,15 @@ class LuaModEngine(
         return skipOriginal
     }
 
-    fun onApplicationExit() {
-        for (i in 0 until exitHooks.size) {
-            val hook = exitHooks[i]
-            try {
-                hook.function.call()
-            } catch (t: Throwable) {
-                SessionLogManager.logError("MOD:${hook.modName}", "Error in on_exit()", t)
+    fun onApplicationExit() = synchronized(engineLock) {
+        if (exitHooks.isNotEmpty()) {
+            for (i in 0 until exitHooks.size) {
+                val hook = exitHooks[i]
+                try {
+                    hook.function.call()
+                } catch (t: Throwable) {
+                    SessionLogManager.logError("MOD:${hook.modName}", "Error in on_exit()", t)
+                }
             }
         }
         SessionLogManager.flushToDisk(assetRouter.modsDir)

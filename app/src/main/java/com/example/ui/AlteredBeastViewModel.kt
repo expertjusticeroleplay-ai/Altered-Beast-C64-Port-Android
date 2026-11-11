@@ -258,8 +258,8 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
 
     fun refreshStorageAndMods() {
         viewModelScope.launch(Dispatchers.IO) {
-            val report = luaModEngine.initializeFromStorage()
-            if (report.discoveredLuaFiles.isNotEmpty() && _uiState.value.isEngineReady) {
+            val loadedNewMods = luaModEngine.refreshFromStorageIfChanged()
+            if (loadedNewMods && _uiState.value.isEngineReady) {
                 luaModEngine.onEngineInitialized()
             }
         }

@@ -267,7 +267,19 @@ class ExampleUnitTest {
     fun gzBeastStorageGuideVerificationAndUnrestrictedLuaModdingEngineWorksEndToEnd() {
         val tempRoot = Files.createTempDirectory("gzbeast_storage_test").toFile()
         try {
-            val report1 = ModStorageManager.initializeAndVerifyStorage(tempRoot)
+            val router = ModAssetRouter(fileSystemAssetProvider)
+            val assembler = PdsNativeAssembler(router)
+            val renderer = VicIIVideoRenderer()
+            val sid = SidAudioSynthesizer()
+            val core = C64ExecutionCore(
+                assembler = assembler,
+                assetProvider = router,
+                videoRenderer = renderer,
+                sidSynthesizer = sid
+            )
+            val luaEngine = LuaModEngine(core, router)
+
+            val report1 = luaEngine.initializeFromStorage(tempRoot, resetLogSession = true)
             assertTrue(report1.gzBeastCreated)
             assertTrue(report1.modsCreated)
             assertTrue(report1.gzBeastDir.exists())
@@ -276,6 +288,15 @@ class ExampleUnitTest {
             assertEquals(GuideVerificationResult.CREATED_NEW, report1.guideResult)
             assertEquals(GuideDocumentation.EXPECTED_BYTE_SIZE, report1.actualGuideSize)
             assertEquals(GuideDocumentation.CANONICAL_GUIDE_TEXT, report1.guideFile.readText(Charsets.UTF_8))
+            assertEquals(0, report1.discoveredLuaFiles.size)
+
+            assertFalse("Unchanged storage should not re-initialize", luaEngine.refreshFromStorageIfChanged(tempRoot))
+
+            core.initializeEngine()
+            for (lvl in 1..5) {
+                core.loadLevelDirect(lvl)
+                core.runSinglePalFrame()
+            }
 
             val report2 = ModStorageManager.initializeAndVerifyStorage(tempRoot)
             assertFalse(report2.gzBeastCreated)
@@ -350,21 +371,10 @@ class ExampleUnitTest {
                 Charsets.UTF_8
             )
 
-            val router = ModAssetRouter(fileSystemAssetProvider, report1.modsDir)
-            val assembler = PdsNativeAssembler(router)
-            val renderer = VicIIVideoRenderer()
-            val sid = SidAudioSynthesizer()
-            val core = C64ExecutionCore(
-                assembler = assembler,
-                assetProvider = router,
-                videoRenderer = renderer,
-                sidSynthesizer = sid
-            )
-            val luaEngine = LuaModEngine(core, router)
-
-            val modReport = luaEngine.initializeFromStorage(tempRoot)
+            val modReport = luaEngine.initializeFromStorage(tempRoot, resetLogSession = true)
             assertEquals(2, modReport.discoveredLuaFiles.size)
             assertEquals(2, luaEngine.loadedModNames.size)
+            assertFalse("Second refresh without file changes must be a no-op", luaEngine.refreshFromStorageIfChanged(tempRoot))
 
             core.initializeEngine()
             assertEquals(0x112233, renderer.getPaletteColor(0))
@@ -379,10 +389,11 @@ class ExampleUnitTest {
             assertEquals(2, core.currentLoadedLevel)
             assertEquals(2, core.ram[0xCFFE].toInt() and 0xFF)
 
+            val prevFrames = core.totalFramesRun
             for (f in 1..5) {
                 core.runSinglePalFrame()
             }
-            assertEquals(5, core.ram[0xCFFF].toInt() and 0xFF)
+            assertEquals(((prevFrames + 5) % 256).toInt(), core.ram[0xCFFF].toInt() and 0xFF)
 
             val savedPc = core.regPC
             core.regPC = 0xCF00
@@ -395,6 +406,8 @@ class ExampleUnitTest {
             luaEngine.onApplicationExit()
             assertTrue("session.log must be written when application exits", sessionLogFile.exists())
             val logContent = sessionLogFile.readText(Charsets.UTF_8)
+            val sessionHeaderCount = logContent.lines().count { it.contains("GZBeast session started.") }
+            assertEquals("Expected exactly 1 session header in session.log", 1, sessionHeaderCount)
             assertTrue(logContent.contains("Mod 1 initialized with version GZBeast-Lua-1.0"))
             assertTrue(logContent.contains("Level loaded: 2 file_id=2"))
             assertTrue(logContent.contains("Mod 1 cleanly exiting"))

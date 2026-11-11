@@ -36,6 +36,8 @@ object ModStorageManager {
     const val GUIDE_FILE_NAME = "guide.txt"
     const val SESSION_LOG_FILE_NAME = "session.log"
 
+    private val storageLock = Any()
+
     fun hasStorageAccessPermission(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
@@ -65,14 +67,19 @@ object ModStorageManager {
     }
 
     fun initializeAndVerifyStorage(
-        customRootDir: File? = null
-    ): StorageInitializationReport {
+        customRootDir: File? = null,
+        resetLogSession: Boolean = false
+    ): StorageInitializationReport = synchronized(storageLock) {
         val rootDir = customRootDir ?: resolveDefaultRootDirectory()
         val gzBeastDir = File(rootDir, GZBEAST_FOLDER_NAME)
         val modsDir = File(gzBeastDir, MODS_FOLDER_NAME)
         val guideFile = File(modsDir, GUIDE_FILE_NAME)
 
-        SessionLogManager.startNewSession(modsDir)
+        if (resetLogSession) {
+            SessionLogManager.resetSessionForTest(modsDir)
+        } else {
+            SessionLogManager.ensureSessionStarted(modsDir)
+        }
 
         var gzBeastCreated = false
         if (!gzBeastDir.exists()) {
@@ -141,7 +148,7 @@ object ModStorageManager {
             "Discovered ${luaFiles.size} Lua mod script(s) in ${modsDir.absolutePath}"
         )
 
-        return StorageInitializationReport(
+        StorageInitializationReport(
             rootDir = rootDir,
             gzBeastDir = gzBeastDir,
             modsDir = modsDir,

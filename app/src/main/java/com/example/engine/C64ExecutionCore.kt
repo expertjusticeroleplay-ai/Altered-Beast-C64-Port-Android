@@ -428,7 +428,7 @@ class C64ExecutionCore(
 
             applyRuntimeGuardsAndCheats()
 
-            if (invokeScanlineHooks && listener != null) {
+            if (invokeScanlineHooks) {
                 listener.onScanline(raster, inGameMode, currentLoadedLevel)
             }
 

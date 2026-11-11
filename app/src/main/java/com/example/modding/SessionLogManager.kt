@@ -14,18 +14,31 @@ object SessionLogManager {
     private val lock = Any()
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
     private val hookInstalled = AtomicBoolean(false)
+    private val sessionActive = AtomicBoolean(false)
 
     @Volatile
     var activeModsDirectory: File = File("/storage/emulated/0/GZBeast/mods")
 
-    fun startNewSession(modsDir: File? = null) {
+    fun ensureSessionStarted(modsDir: File? = null) {
         if (modsDir != null) {
             activeModsDirectory = modsDir
         }
+        installExitHooksIfNeeded()
+        if (sessionActive.compareAndSet(false, true)) {
+            synchronized(lock) {
+                entries.clear()
+            }
+            logInfo("SYSTEM", "GZBeast session started. Target mods path: ${activeModsDirectory.absolutePath}")
+        }
+    }
+
+    fun resetSessionForTest(modsDir: File) {
+        activeModsDirectory = modsDir
+        sessionActive.set(true)
+        installExitHooksIfNeeded()
         synchronized(lock) {
             entries.clear()
         }
-        installExitHooksIfNeeded()
         logInfo("SYSTEM", "GZBeast session started. Target mods path: ${activeModsDirectory.absolutePath}")
     }
 
