@@ -84,7 +84,7 @@ If `KEYSTORE_PATH` is unset, the build looks for `my-upload-key.jks` in the proj
 
 ## Shared storage
 
-GZBeast reads and writes mods under the shared `GZBeast` directory. On Android 11 and later, the app requests **All files access** to discover and manage mod files. Grant this permission only if you intend to use the shared-storage mod workflow. Android distribution channels may impose additional requirements on apps that request broad file access.
+GZBeast reads and writes mods under the shared `GZBeast` directory. On Android 11 and later, the app requests [All files access](https://developer.android.com/training/data-storage/manage-all-files?hl=en) to discover and manage mod files. Grant this permission only if you intend to use the shared-storage mod workflow. Android distribution channels may impose additional requirements on apps that request broad file access.
 
 ## Project relationship and licensing
 
