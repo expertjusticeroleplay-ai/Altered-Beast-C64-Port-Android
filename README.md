@@ -1,6 +1,6 @@
 # GZBeast
 
-GZBeast is a native Android application for the Commodore 64 version of **Altered Beast**. Built with Kotlin, it assembles and runs the bundled 6502/PDS game modules through a purpose-built C64 execution core, with VIC-II-style video rendering and SID-inspired audio synthesis.
+GZBeast is a native Android application for the Commodore 64 version of [Altered Beast](https://en.wikipedia.org/wiki/Altered_Beast) Built with Kotlin, it assembles and runs the bundled 6502/PDS game modules through a purpose-built C64 execution core, with VIC-II-style video rendering and SID-inspired audio synthesis.
 
 The app combines the game with a LuaJ-based mod system for scripts, runtime hooks, asset overrides, and graphics changes. Mods are discovered from shared storage and can interact with gameplay, memory, levels, and the 320 × 200 framebuffer.
 
