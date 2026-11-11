@@ -99,6 +99,40 @@ class SidAudioSynthesizer(private val sampleRate: Int = 44100) {
         }
     }
 
+    fun readRegister(offset: Int): Int {
+        return registers[offset and 0x1F] and 0xFF
+    }
+
+    fun playSynthesizedNote(
+        voice: Int,
+        freqHz: Double,
+        waveform: Int = 0x21,
+        attackDecay: Int = 0x19,
+        sustainRelease: Int = 0xF5,
+        pulseWidth: Int = 2048
+    ) {
+        val v = voice.coerceIn(0, 2)
+        val base = v * 7
+        if ((registers[0x18] and 0x0F) == 0) {
+            registers[0x18] = (registers[0x18] and 0xF0) or 0x0F
+        }
+        if (freqHz <= 0.0) {
+            writeRegister(base + 4, waveform and 0xFE)
+            return
+        }
+        val clockHz = 985248.0
+        val freqWord = ((freqHz * 16777216.0) / clockHz).toInt().coerceIn(0, 0xFFFF)
+        val pw = pulseWidth.coerceIn(64, 4032)
+        writeRegister(base, freqWord and 0xFF)
+        writeRegister(base + 1, (freqWord ushr 8) and 0xFF)
+        writeRegister(base + 2, pw and 0xFF)
+        writeRegister(base + 3, (pw ushr 8) and 0x0F)
+        writeRegister(base + 5, attackDecay and 0xFF)
+        writeRegister(base + 6, sustainRelease and 0xFF)
+        writeRegister(base + 4, waveform and 0xFE)
+        writeRegister(base + 4, waveform or 0x01)
+    }
+
     fun renderFrameSamples(samplesCount: Int = sampleRate / 50): ShortArray {
         val out = ShortArray(samplesCount)
         if (!soundEnabled) {

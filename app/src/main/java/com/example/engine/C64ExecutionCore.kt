@@ -1,8 +1,24 @@
 package com.example.engine
 
+interface ModExecutionListener {
+    val hasBeforeFrameHooks: Boolean
+    val hasAfterFrameHooks: Boolean
+    val hasScanlineHooks: Boolean
+    val hasDrawHooks: Boolean
+    val hasPcHooks: Boolean
+    fun isPcHooked(pc: Int): Boolean
+    fun onEngineInitialized()
+    fun onBeforeFrame(frameCount: Long, inGame: Boolean, currentLevel: Int)
+    fun onAfterFrame(frameCount: Long, inGame: Boolean, currentLevel: Int)
+    fun onScanline(rasterY: Int, inGame: Boolean, currentLevel: Int)
+    fun onDraw(frameCount: Long, inGame: Boolean, currentLevel: Int)
+    fun onLevelLoad(levelId: Int, fileId: Int)
+    fun onPcHook(pc: Int): Boolean
+}
+
 class C64ExecutionCore(
-    private val assembler: PdsNativeAssembler,
-    private val assetProvider: BinaryAssetProvider,
+    val assembler: PdsNativeAssembler,
+    val assetProvider: BinaryAssetProvider,
     val videoRenderer: VicIIVideoRenderer,
     val sidSynthesizer: SidAudioSynthesizer
 ) {
@@ -119,6 +135,63 @@ class C64ExecutionCore(
 
     private var jumpUpLatch = false
 
+    @Volatile
+    var totalFramesRun: Long = 0L
+        private set
+
+    @Volatile
+    var modListener: ModExecutionListener? = null
+
+    fun resolveSymbol(name: String, level: Int = currentLoadedLevel): Int? {
+        val key = name.trim().uppercase()
+        if (inGameMode) {
+            levelPrograms[level]?.symbols?.get(key)?.let { return it }
+            gameBaseProgram?.symbols?.get(key)?.let { return it }
+            introProgram?.symbols?.get(key)?.let { return it }
+        } else {
+            introProgram?.symbols?.get(key)?.let { return it }
+            levelPrograms[level]?.symbols?.get(key)?.let { return it }
+            gameBaseProgram?.symbols?.get(key)?.let { return it }
+        }
+        return null
+    }
+
+    fun currentSymbolMap(): Map<String, Int> {
+        return if (inGameMode) {
+            levelPrograms[currentLoadedLevel]?.symbols ?: gameBaseProgram?.symbols ?: emptyMap()
+        } else {
+            introProgram?.symbols ?: gameBaseProgram?.symbols ?: emptyMap()
+        }
+    }
+
+    fun rebuildLevelProgram(level: Int) {
+        if (level !in 1..5) return
+        assembler.clearBinaryCache()
+        val rebuilt = assembler.assembleGameLevel(level)
+        levelPrograms[level] = rebuilt
+        if (level == 1) {
+            gameBaseProgram = rebuilt
+        }
+        if (inGameMode && currentLoadedLevel == level) {
+            val src = rebuilt.memory
+            System.arraycopy(src, gameNewPcAddr, ram, gameNewPcAddr, 0xB400 - gameNewPcAddr)
+            System.arraycopy(src, 0xD240, ram, 0xD240, 0xF000 - 0xD240)
+            System.arraycopy(src, 0xF340, ram, 0xF340, 0xFFFA - 0xF340)
+        }
+    }
+
+    fun loadLevelDirect(levelId: Int) {
+        if (levelId !in 1..5) return
+        if (!inGameMode) {
+            bootGameProgram()
+        }
+        handleNativeGameLoad(levelId)
+        val symLevel = resolveSymbol("LEVEL", levelId)
+        if (symLevel != null) {
+            ram[symLevel and 0xFFFF] = levelId.toByte()
+        }
+    }
+
     fun initializeEngine() {
         val intro = assembler.assembleIntro()
         introProgram = intro
@@ -165,6 +238,7 @@ class C64ExecutionCore(
         }
 
         bootIntroProgram()
+        modListener?.onEngineInitialized()
     }
 
     fun bootIntroProgram() {
@@ -310,6 +384,11 @@ class C64ExecutionCore(
 
     fun runSinglePalFrame() {
         videoRenderer.resetFrameState()
+        val frameNum = ++totalFramesRun
+        val listener = modListener
+        if (listener != null && listener.hasBeforeFrameHooks) {
+            listener.onBeforeFrame(frameNum, inGameMode, currentLoadedLevel)
+        }
 
         if (pendingRestoreNmi) {
             pendingRestoreNmi = false
@@ -320,6 +399,8 @@ class C64ExecutionCore(
         if (!joyUp) {
             jumpUpLatch = false
         }
+
+        val invokeScanlineHooks = listener != null && listener.hasScanlineHooks
 
         for (raster in 0 until 312) {
             currentRaster = raster
@@ -347,6 +428,10 @@ class C64ExecutionCore(
 
             applyRuntimeGuardsAndCheats()
 
+            if (invokeScanlineHooks && listener != null) {
+                listener.onScanline(raster, inGameMode, currentLoadedLevel)
+            }
+
             if (raster in 50 until 250) {
                 videoRenderer.renderScanline(
                     displayY = raster - 50,
@@ -358,6 +443,15 @@ class C64ExecutionCore(
             }
 
             videoRenderer.endScanlineSprites(vicRegs)
+        }
+
+        if (listener != null) {
+            if (listener.hasAfterFrameHooks) {
+                listener.onAfterFrame(frameNum, inGameMode, currentLoadedLevel)
+            }
+            if (listener.hasDrawHooks) {
+                listener.onDraw(frameNum, inGameMode, currentLoadedLevel)
+            }
         }
 
         sidSynthesizer.renderFrameSamples()
@@ -491,6 +585,14 @@ class C64ExecutionCore(
                 continue
             }
 
+            val listener = modListener
+            if (listener != null && listener.hasPcHooks && listener.isPcHooked(regPC)) {
+                if (listener.onPcHook(regPC)) {
+                    cyclesRun += 2
+                    continue
+                }
+            }
+
             val stepCycles = executeSingleInstruction()
             cyclesRun += stepCycles
 
@@ -568,6 +670,7 @@ class C64ExecutionCore(
                 }
             }
         }
+        modListener?.onLevelLoad(currentLoadedLevel, fileId)
     }
 
     private fun isIoMapped(): Boolean {

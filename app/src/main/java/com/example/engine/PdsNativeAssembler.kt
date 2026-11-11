@@ -174,6 +174,46 @@ class PdsNativeAssembler(private val assetProvider: BinaryAssetProvider) {
         return assembleFiles("GAME", files, mapOf("GLEVEL" to level))
     }
 
+    fun clearBinaryCache() {
+        incbinCache.clear()
+    }
+
+    fun assembleSnippet(
+        orgAddress: Int,
+        pdsSource: String,
+        baseSymbols: Map<String, Int>,
+        targetRam: ByteArray
+    ): Int {
+        val snippetLines = ArrayList<Pair<String, String>>()
+        snippetLines.add("MOD_PATCH" to " ORG &${Integer.toHexString(orgAddress and 0xFFFF).uppercase()}")
+        for (line in pdsSource.split('\n')) {
+            snippetLines.add("MOD_PATCH" to line.trimEnd('\r'))
+        }
+        snippetLines.add("MOD_PATCH" to "MOD_PATCH_END_LABEL")
+
+        val upperPredefined = baseSymbols.entries.associate { (k, v) -> k.uppercase() to v }
+        val symbols = HashMap<String, Int>(upperPredefined.size + 64)
+        symbols.putAll(upperPredefined)
+        val mutableVars = HashSet<String>()
+        val macros = HashMap<String, MacroDefinition>()
+
+        for (pass in 1..3) {
+            val scratch = if (pass == 3) targetRam else targetRam.copyOf()
+            runSinglePass(
+                baseDir = "GAME",
+                lines = snippetLines,
+                pass = pass,
+                predefinedSymbols = upperPredefined,
+                symbols = symbols,
+                mutableVars = mutableVars,
+                macros = macros,
+                memory = scratch
+            )
+        }
+        val endPc = symbols["MOD_PATCH_END_LABEL"] ?: orgAddress
+        return (endPc - orgAddress).coerceAtLeast(0)
+    }
+
     private fun getBinary(path: String): ByteArray {
         val normalized = path.replace('\\', '/').trimStart('/')
         return incbinCache.getOrPut(normalized) {

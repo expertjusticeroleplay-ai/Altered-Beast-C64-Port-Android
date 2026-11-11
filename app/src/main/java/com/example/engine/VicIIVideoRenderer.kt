@@ -4,7 +4,7 @@ class VicIIVideoRenderer {
 
     val framePixels = IntArray(320 * 200)
 
-    private val c64Palette = intArrayOf(
+    private val defaultPalette = intArrayOf(
         0xFF000000.toInt(),
         0xFFFFFFFF.toInt(),
         0xFF883932.toInt(),
@@ -22,6 +22,20 @@ class VicIIVideoRenderer {
         0xFF7869C4.toInt(),
         0xFF9F9F9F.toInt()
     )
+
+    private val c64Palette = defaultPalette.copyOf()
+
+    fun getPaletteColor(index: Int): Int {
+        return c64Palette[index and 0x0F] and 0xFFFFFF
+    }
+
+    fun setPaletteColor(index: Int, rgbHex: Int) {
+        c64Palette[index and 0x0F] = (rgbHex and 0xFFFFFF) or (0xFF shl 24)
+    }
+
+    fun resetPalette() {
+        System.arraycopy(defaultPalette, 0, c64Palette, 0, 16)
+    }
 
     private val bgMaskLine = BooleanArray(320)
     private val spriteActive = BooleanArray(8)

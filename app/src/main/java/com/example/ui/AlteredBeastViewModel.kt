@@ -15,6 +15,8 @@ import com.example.engine.C64ExecutionCore
 import com.example.engine.PdsNativeAssembler
 import com.example.engine.SidAudioSynthesizer
 import com.example.engine.VicIIVideoRenderer
+import com.example.modding.LuaModEngine
+import com.example.modding.ModAssetRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -53,16 +55,18 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
     private val _uiState = MutableStateFlow(AlteredBeastUiState())
     val uiState: StateFlow<AlteredBeastUiState> = _uiState.asStateFlow()
 
-    private val assetProvider = AndroidAssetProvider(application.assets)
-    private val assembler = PdsNativeAssembler(assetProvider)
+    private val baseAssetProvider = AndroidAssetProvider(application.assets)
+    val modAssetRouter = ModAssetRouter(baseAssetProvider)
+    private val assembler = PdsNativeAssembler(modAssetRouter)
     private val videoRenderer = VicIIVideoRenderer()
     private val sidSynthesizer = SidAudioSynthesizer()
     val executionCore = C64ExecutionCore(
         assembler = assembler,
-        assetProvider = assetProvider,
+        assetProvider = modAssetRouter,
         videoRenderer = videoRenderer,
         sidSynthesizer = sidSynthesizer
     )
+    val luaModEngine = LuaModEngine(executionCore, modAssetRouter)
 
     private val outputBitmap = Bitmap.createBitmap(320, 200, Bitmap.Config.ARGB_8888)
     private var engineJob: Job? = null
@@ -103,6 +107,7 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
     private fun startNativeEngineLoop() {
         if (engineJob != null) return
         engineJob = viewModelScope.launch(Dispatchers.Default) {
+            luaModEngine.initializeFromStorage()
             executionCore.initializeEngine()
             sidSynthesizer.start()
             executionCore.runSinglePalFrame()
@@ -251,7 +256,21 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
         _uiState.update { it.copy(controlsVisible = !it.controlsVisible) }
     }
 
+    fun refreshStorageAndMods() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val report = luaModEngine.initializeFromStorage()
+            if (report.discoveredLuaFiles.isNotEmpty() && _uiState.value.isEngineReady) {
+                luaModEngine.onEngineInitialized()
+            }
+        }
+    }
+
+    fun flushSessionLogOnExit() {
+        luaModEngine.onApplicationExit()
+    }
+
     override fun onCleared() {
+        flushSessionLogOnExit()
         super.onCleared()
         engineJob?.cancel()
         sidSynthesizer.stop()

@@ -71,7 +71,9 @@ android {
       "dis", "DIS",
       "tap", "TAP",
       "bin", "BIN",
-      "md", "MD"
+      "md", "MD",
+      "lua", "LUA",
+      "txt", "TXT"
     )
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
@@ -102,6 +104,7 @@ dependencies {
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
+  implementation(libs.luaj.jse)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

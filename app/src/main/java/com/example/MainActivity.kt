@@ -1,14 +1,20 @@
 package com.example
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.view.Display
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -27,6 +33,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.modding.ModStorageManager
 import com.example.ui.AlteredBeastUiState
 import com.example.ui.AlteredBeastViewModel
 import com.example.ui.FloatingSvgControls
@@ -37,10 +44,17 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: AlteredBeastViewModel by viewModels()
 
+    private val legacyStoragePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        viewModel.refreshStorageAndMods()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         configureImmersiveDisplayAndRefreshRate()
+        ensureModStoragePermissions()
 
         setContent {
             AlteredBeastTheme {
@@ -65,6 +79,46 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         configureImmersiveDisplayAndRefreshRate()
+        if (ModStorageManager.hasStorageAccessPermission(this)) {
+            viewModel.refreshStorageAndMods()
+        }
+    }
+
+    override fun onStop() {
+        viewModel.flushSessionLogOnExit()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        viewModel.flushSessionLogOnExit()
+        super.onDestroy()
+    }
+
+    private fun ensureModStoragePermissions() {
+        if (ModStorageManager.hasStorageAccessPermission(this)) {
+            viewModel.refreshStorageAndMods()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            }.onFailure {
+                runCatching {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                }
+            }
+        } else {
+            legacyStoragePermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+                )
+            )
+        }
     }
 
     private fun configureImmersiveDisplayAndRefreshRate() {

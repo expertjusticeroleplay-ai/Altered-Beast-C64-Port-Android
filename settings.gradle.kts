@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Altered Beast"
+rootProject.name = "GZBeast"
 
 include(":app")

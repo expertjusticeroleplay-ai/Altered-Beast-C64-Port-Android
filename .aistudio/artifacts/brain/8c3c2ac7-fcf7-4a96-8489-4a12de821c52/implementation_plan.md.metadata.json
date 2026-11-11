@@ -1,6 +1,6 @@
 {
-  "summary":  "Rencana implementasi lengkap untuk port native Android Altered Beast (Commodore 64) dengan package com.alteredbeast.port, mencakup translasi 1:1 seluruh instruksi dan modul kode asli Michael J Archer (INTRO dan GAME), pemuatan aset biner tanpa kompresi, kontrol SVG melayang berdasarkan pemetaan CIA1 asli, perenderan piksel Nearest-Neighbor layar penuh, dan adaptasi frame rate otomatis sesuai refresh rate perangkat.",
-  "updatedAt":  "2026-11-08T13:09:38.778180582Z",
+  "summary":  "Implementation plan for rebranding the app to GZBeast and integrating an unrestricted, zero-overhead Lua modding engine with automatic /storage/emulated/0/GZBeast/mods/ directory initialization, byte-size-verified English guide.txt generation, multi-format external asset overriding, and deferred exit-only session.log writing across Android 7.0 through Android 16+.",
+  "updatedAt":  "2026-11-11T06:34:43.998015686Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -6,11 +6,18 @@ import com.example.engine.PdsNativeAssembler
 import com.example.engine.SidAudioSynthesizer
 import com.example.engine.TranslatedSourceModules
 import com.example.engine.VicIIVideoRenderer
+import com.example.modding.GuideDocumentation
+import com.example.modding.GuideVerificationResult
+import com.example.modding.LuaModEngine
+import com.example.modding.ModAssetRouter
+import com.example.modding.ModStorageManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 class ExampleUnitTest {
 
@@ -255,4 +262,146 @@ class ExampleUnitTest {
         core.joyFire = false
         assertTrue("Expected Level 5 ending sequence and gallery to execute cleanly without crashing", completedLevel5EndSeq)
     }
+
+    @Test
+    fun gzBeastStorageGuideVerificationAndUnrestrictedLuaModdingEngineWorksEndToEnd() {
+        val tempRoot = Files.createTempDirectory("gzbeast_storage_test").toFile()
+        try {
+            val report1 = ModStorageManager.initializeAndVerifyStorage(tempRoot)
+            assertTrue(report1.gzBeastCreated)
+            assertTrue(report1.modsCreated)
+            assertTrue(report1.gzBeastDir.exists())
+            assertTrue(report1.modsDir.exists())
+            assertTrue(report1.guideFile.exists())
+            assertEquals(GuideVerificationResult.CREATED_NEW, report1.guideResult)
+            assertEquals(GuideDocumentation.EXPECTED_BYTE_SIZE, report1.actualGuideSize)
+            assertEquals(GuideDocumentation.CANONICAL_GUIDE_TEXT, report1.guideFile.readText(Charsets.UTF_8))
+
+            val report2 = ModStorageManager.initializeAndVerifyStorage(tempRoot)
+            assertFalse(report2.gzBeastCreated)
+            assertFalse(report2.modsCreated)
+            assertEquals(GuideVerificationResult.UNCHANGED_SIZE_MATCH, report2.guideResult)
+            assertEquals(GuideDocumentation.EXPECTED_BYTE_SIZE, report2.actualGuideSize)
+
+            report1.guideFile.writeText("corrupted_or_outdated_guide_content", Charsets.UTF_8)
+            assertTrue(report1.guideFile.length() != GuideDocumentation.EXPECTED_BYTE_SIZE)
+
+            val report3 = ModStorageManager.initializeAndVerifyStorage(tempRoot)
+            assertEquals(GuideVerificationResult.REPLACED_SIZE_MISMATCH, report3.guideResult)
+            assertEquals(GuideDocumentation.EXPECTED_BYTE_SIZE, report3.guideFile.length())
+            assertEquals(GuideDocumentation.CANONICAL_GUIDE_TEXT, report3.guideFile.readText(Charsets.UTF_8))
+
+            val mod1File = File(report1.modsDir, "01_custom_level_and_sprites.lua")
+            mod1File.writeText(
+                """
+                function on_init()
+                    gz.log("Mod 1 initialized with version " .. gz.version())
+                    local custom_char = { 0xFF, 0x81, 0x81, 0xFF, 0xFF, 0x81, 0x81, 0xFF }
+                    gz.level.set_char(0, custom_char)
+                    gz.palette.set(0, 0x112233)
+                    gz.asset.write_text("custom_state.txt", "mod1_ready")
+                end
+
+                function on_level_load(lvl, file_id)
+                    gz.log("Level loaded: " .. tostring(lvl) .. " file_id=" .. tostring(file_id))
+                    gz.poke(0xCFFE, lvl)
+                end
+
+                function on_frame(frame, in_game, lvl)
+                    if in_game then
+                        local p1 = gz.player.get(1)
+                        if p1.lives > 0 and p1.hits < 9 then
+                            gz.player.set(1, { hits = 9 })
+                        end
+                    end
+                    gz.poke(0xCFFF, frame % 256)
+                end
+
+                function on_draw(frame, in_game, lvl)
+                    gz.canvas.rect(2, 2, 40, 10, 0xFF102030, true)
+                    gz.canvas.text(4, 4, "GZMOD", 0xFFFFCC00, 1)
+                end
+
+                function on_exit()
+                    gz.log("Mod 1 cleanly exiting")
+                end
+                """.trimIndent(),
+                Charsets.UTF_8
+            )
+
+            val subModDir = File(report1.modsDir, "pack_b")
+            subModDir.mkdirs()
+            val mod2File = File(subModDir, "02_asm_and_pc_hook.lua")
+            mod2File.writeText(
+                """
+                pc_hook_hits = 0
+                function on_init()
+                    gz.asm.patch(0xCF00, [[
+                        LDA #&42
+                        STA &CF10
+                        RTS
+                    ]])
+                    gz.on_pc(0xCF00, function(pc)
+                        pc_hook_hits = pc_hook_hits + 1
+                        gz.poke(0xCF11, pc_hook_hits)
+                    end)
+                end
+                """.trimIndent(),
+                Charsets.UTF_8
+            )
+
+            val router = ModAssetRouter(fileSystemAssetProvider, report1.modsDir)
+            val assembler = PdsNativeAssembler(router)
+            val renderer = VicIIVideoRenderer()
+            val sid = SidAudioSynthesizer()
+            val core = C64ExecutionCore(
+                assembler = assembler,
+                assetProvider = router,
+                videoRenderer = renderer,
+                sidSynthesizer = sid
+            )
+            val luaEngine = LuaModEngine(core, router)
+
+            val modReport = luaEngine.initializeFromStorage(tempRoot)
+            assertEquals(2, modReport.discoveredLuaFiles.size)
+            assertEquals(2, luaEngine.loadedModNames.size)
+
+            core.initializeEngine()
+            assertEquals(0x112233, renderer.getPaletteColor(0))
+            assertEquals("mod1_ready", router.readModFileText("custom_state.txt"))
+            assertEquals(0xA9, core.ram[0xCF00].toInt() and 0xFF)
+            assertEquals(0x42, core.ram[0xCF01].toInt() and 0xFF)
+
+            val sessionLogFile = File(report1.modsDir, "session.log")
+            assertFalse("session.log must NOT be written during active runtime before exit", sessionLogFile.exists())
+
+            core.loadLevelDirect(2)
+            assertEquals(2, core.currentLoadedLevel)
+            assertEquals(2, core.ram[0xCFFE].toInt() and 0xFF)
+
+            for (f in 1..5) {
+                core.runSinglePalFrame()
+            }
+            assertEquals(5, core.ram[0xCFFF].toInt() and 0xFF)
+
+            val savedPc = core.regPC
+            core.regPC = 0xCF00
+            luaEngine.onPcHook(0xCF00)
+            core.regPC = savedPc
+            assertEquals(1, core.ram[0xCF11].toInt() and 0xFF)
+
+            assertFalse("session.log must still NOT exist before app exit", sessionLogFile.exists())
+
+            luaEngine.onApplicationExit()
+            assertTrue("session.log must be written when application exits", sessionLogFile.exists())
+            val logContent = sessionLogFile.readText(Charsets.UTF_8)
+            assertTrue(logContent.contains("Mod 1 initialized with version GZBeast-Lua-1.0"))
+            assertTrue(logContent.contains("Level loaded: 2 file_id=2"))
+            assertTrue(logContent.contains("Mod 1 cleanly exiting"))
+            assertTrue(logContent.contains("Session log flushed on application exit."))
+        } finally {
+            tempRoot.deleteRecursively()
+        }
+    }
 }
+
