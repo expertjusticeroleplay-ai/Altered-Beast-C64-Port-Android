@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        viewModel.onAppForegroundChanged(true)
         configureImmersiveDisplayAndRefreshRate()
         if (ModStorageManager.hasStorageAccessPermission(this)) {
             viewModel.refreshStorageAndMods()
@@ -85,11 +86,13 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        viewModel.onAppForegroundChanged(false)
         viewModel.flushSessionLogOnExit()
         super.onStop()
     }
 
     override fun onDestroy() {
+        viewModel.onAppForegroundChanged(false)
         viewModel.flushSessionLogOnExit()
         super.onDestroy()
     }

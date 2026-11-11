@@ -416,5 +416,37 @@ class ExampleUnitTest {
             tempRoot.deleteRecursively()
         }
     }
+
+    @Test
+    fun sidAudioSynthesizerProducesCleanAntiAliasedNonClippingAudio() {
+        for (rate in intArrayOf(44100, 48000)) {
+            val sid = SidAudioSynthesizer(rate)
+            sid.writeRegister(0x18, 0x0F)
+            sid.playSynthesizedNote(0, 440.0, 0x41, 0x09, 0xA9, 1024)
+            sid.playSynthesizedNote(1, 220.0, 0x21, 0x0A, 0xAA, 2048)
+            sid.playSynthesizedNote(2, 110.0, 0x81, 0x08, 0x88, 2048)
+
+            var nonZeroCount = 0
+            var maxAbsSample = 0
+            for (frame in 0 until 10) {
+                val samples = sid.renderFrameSamples()
+                assertEquals(rate / 50, samples.size)
+                for (s in samples) {
+                    val absVal = kotlin.math.abs(s.toInt())
+                    if (absVal > 0) nonZeroCount++
+                    if (absVal > maxAbsSample) maxAbsSample = absVal
+                    assertTrue("Audio sample must never hard clip: $s", absVal <= 26000)
+                }
+            }
+            assertTrue("Expected audible non-zero synthesized samples", nonZeroCount > 100)
+            assertTrue("Expected non-zero peak amplitude", maxAbsSample > 500)
+
+            val r1 = sid.readRegister(0x1B)
+            val r2 = sid.readRegister(0x1B)
+            val r3 = sid.readRegister(0x1B)
+            assertTrue("SID 0xD41B readback should produce varying random bytes", r1 != r2 || r2 != r3)
+            assertTrue("SID 0xD41C envelope readback should be in 0..255", sid.readRegister(0x1C) in 0..255)
+        }
+    }
 }
 

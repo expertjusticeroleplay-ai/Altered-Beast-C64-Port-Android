@@ -75,6 +75,7 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
     private var targetDeviceRefreshRate: Float = 60f
 
     init {
+        sidSynthesizer.configureForDevice(application)
         detectDeviceRefreshRateCap(application)
         startNativeEngineLoop()
     }
@@ -106,10 +107,11 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
 
     private fun startNativeEngineLoop() {
         if (engineJob != null) return
+        val appContext = getApplication<Application>()
         engineJob = viewModelScope.launch(Dispatchers.Default) {
             luaModEngine.initializeFromStorage()
             executionCore.initializeEngine()
-            sidSynthesizer.start()
+            sidSynthesizer.start(appContext)
             executionCore.runSinglePalFrame()
             outputBitmap.setPixels(videoRenderer.framePixels, 0, 320, 0, 0, 320, 200)
             val initialComposeBitmap = outputBitmap.asImageBitmap()
@@ -134,17 +136,20 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
                 val fpsCap = targetDeviceRefreshRate.coerceIn(30f, 240f)
                 val renderStepNs = (1_000_000_000f / fpsCap).toLong().coerceAtLeast(4_166_666L)
                 val nowNs = System.nanoTime()
-                val elapsedNs = (nowNs - lastTimeNs).coerceIn(0L, 100_000_000L)
+                val elapsedNs = (nowNs - lastTimeNs).coerceIn(0L, 60_000_000L)
                 lastTimeNs = nowNs
                 palAccumulatorNs += elapsedNs
 
                 var steppedPal = false
                 var stepsThisCycle = 0
-                while (palAccumulatorNs >= palStepNs && stepsThisCycle < 3) {
+                while (palAccumulatorNs >= palStepNs && stepsThisCycle < 2) {
                     executionCore.runSinglePalFrame()
                     palAccumulatorNs -= palStepNs
                     steppedPal = true
                     stepsThisCycle++
+                }
+                if (palAccumulatorNs >= palStepNs * 2) {
+                    palAccumulatorNs = palStepNs - 1L
                 }
 
                 if (steppedPal) {
@@ -156,7 +161,7 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
                 val windowElapsedNs = nowNs - fpsWindowStartNs
                 var measuredFps = _uiState.value.activeRenderFps
                 if (windowElapsedNs >= 500_000_000L) {
-                    measuredFps = ((fpsFrameCounter * 1_000_000_000L) / windowElapsedNs).toInt()
+                    measuredFps = ((fpsFrameCounter * 1_000_000L) / (windowElapsedNs / 1_000L)).toInt()
                         .coerceIn(1, fpsCap.roundToInt())
                     fpsFrameCounter = 0
                     fpsWindowStartNs = nowNs
@@ -178,7 +183,9 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
 
                 val afterWorkNs = System.nanoTime()
                 val workDurationNs = afterWorkNs - nowNs
-                val sleepNs = renderStepNs - workDurationNs
+                val timeToNextPalNs = (palStepNs - palAccumulatorNs).coerceAtLeast(1_000_000L)
+                val targetStepNs = minOf(renderStepNs, timeToNextPalNs)
+                val sleepNs = targetStepNs - workDurationNs
                 if (sleepNs > 1_000_000L) {
                     delay(sleepNs / 1_000_000L)
                 } else {
@@ -254,6 +261,10 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
 
     fun toggleControlsVisibility() {
         _uiState.update { it.copy(controlsVisible = !it.controlsVisible) }
+    }
+
+    fun onAppForegroundChanged(inForeground: Boolean) {
+        sidSynthesizer.setAppForeground(inForeground)
     }
 
     fun refreshStorageAndMods() {

@@ -692,7 +692,7 @@ class C64ExecutionCore(
                         vicRegs[reg] and 0xFF
                     }
                 }
-                in 0xD400..0xD7FF -> 0x00
+                in 0xD400..0xD7FF -> sidSynthesizer.readRegister(addr and 0x1F)
                 in 0xD800..0xDBFF -> colorRam[addr - 0xD800].toInt() and 0x0F
                 in 0xDC00..0xDCFF -> readCia1(addr and 0x0F)
                 in 0xDD00..0xDDFF -> readCia2(addr and 0x0F)
