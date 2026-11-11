@@ -181,6 +181,14 @@ class ExampleUnitTest {
         val symEnemy = level1Prog.symbols["ENEMY"]!!
         val symScroll = level1Prog.symbols["SCROLL"]!!
         val symLevel = level1Prog.symbols["LEVEL"]!!
+        val symFrame = level1Prog.symbols["FRAME"]!!
+        val symCount = level1Prog.symbols["COUNT"]!!
+        val symSpeed = level1Prog.symbols["SPEED"]!!
+
+        assertTrue(
+            "Expected valid Level 1 Wolf frame (23..32) immediately after Cheat ON",
+            (core.ram[symFrame].toInt() and 0xFF) in 23..32
+        )
 
         for (targetLevel in 2..5) {
             core.ram[symEndScroll] = 1
@@ -218,26 +226,56 @@ class ExampleUnitTest {
                 reachedNextLevel
             )
 
-            for (frame in 0 until 10) {
-                core.runSinglePalFrame()
+            val expectedBeastFrames = when (targetLevel) {
+                2 -> 33..41
+                3 -> 42..59
+                4 -> 60..70
+                5 -> 23..32
+                else -> 23..32
             }
+
             assertEquals(
-                "Expected CHEAT ON to restore Altered Beast form on level $targetLevel after STARTSEQ",
+                "Expected CHEAT ON to restore Altered Beast form on level $targetLevel immediately when STARTSEQ ends",
                 255,
                 core.ram[symAltered].toInt() and 0xFF
             )
+
+            for (frame in 0 until 15) {
+                val curFrame = core.ram[symFrame].toInt() and 0xFF
+                val curCount = core.ram[symCount].toInt() and 0xFF
+                val curSpeed = core.ram[symSpeed].toInt() and 0xFF
+                assertTrue(
+                    "Expected valid Beast sprite frame in $expectedBeastFrames on level $targetLevel frame $frame after STARTSEQ, got frame=$curFrame count=$curCount speed=$curSpeed",
+                    curFrame in expectedBeastFrames
+                )
+                if (targetLevel == 2) {
+                    assertTrue("Expected Dragon COUNT in 0..4, got $curCount", curCount in 0..4)
+                    assertTrue("Expected Dragon SPEED in 1..8, got $curSpeed", curSpeed in 1..8)
+                }
+                core.runSinglePalFrame()
+            }
 
             core.joyFire = true
             core.joyRight = true
             for (frame in 0 until 45) {
                 core.runSinglePalFrame()
                 val curY = core.ram[symY].toInt() and 0xFF
+                val curFrame = core.ram[symFrame].toInt() and 0xFF
                 assertTrue("Expected valid player Y ($curY) during level $targetLevel Altered Beast attack", curY in 18..187)
+                assertTrue(
+                    "Expected valid Beast sprite frame in $expectedBeastFrames during level $targetLevel attack, got $curFrame",
+                    curFrame in expectedBeastFrames
+                )
             }
             core.joyFire = false
             core.joyRight = false
             for (frame in 0 until 30) {
                 core.runSinglePalFrame()
+                val curFrame = core.ram[symFrame].toInt() and 0xFF
+                assertTrue(
+                    "Expected valid Beast sprite frame in $expectedBeastFrames after level $targetLevel attack, got $curFrame",
+                    curFrame in expectedBeastFrames
+                )
             }
         }
 

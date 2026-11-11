@@ -132,7 +132,17 @@ class C64ExecutionCore(
     private var symAttached = -1
     private var symScroll = -1
     private var symEndScroll = -1
+    private var symFrame = -1
+    private var symCount = -1
+    private var symSpeed = -1
+    private var symTimes = -1
+    private var symSpecial = -1
+    private var symDoJumpAdd = -1
+    private var symJumpAdd = -1
+    private var symAdd = -1
+    private var symNAdd = -1
 
+    private val prevAltered = IntArray(2)
     private var jumpUpLatch = false
 
     @Volatile
@@ -232,6 +242,15 @@ class C64ExecutionCore(
         symAttached = level1.symbols["ATTACHED"] ?: -1
         symScroll = level1.symbols["SCROLL"] ?: -1
         symEndScroll = level1.symbols["ENDSCROLL"] ?: -1
+        symFrame = level1.symbols["FRAME"] ?: -1
+        symCount = level1.symbols["COUNT"] ?: -1
+        symSpeed = level1.symbols["SPEED"] ?: -1
+        symTimes = level1.symbols["TIMES"] ?: -1
+        symSpecial = level1.symbols["SPECIAL"] ?: -1
+        symDoJumpAdd = level1.symbols["DOJUMPADD"] ?: -1
+        symJumpAdd = level1.symbols["JUMPADD"] ?: -1
+        symAdd = level1.symbols["ADD"] ?: -1
+        symNAdd = level1.symbols["NADD"] ?: -1
 
         for (lvl in 2..5) {
             levelPrograms[lvl] = assembler.assembleGameLevel(lvl)
@@ -247,6 +266,8 @@ class C64ExecutionCore(
         ram.fill(0)
         colorRam.fill(0)
         vicRegs.fill(0)
+        prevAltered[0] = 0
+        prevAltered[1] = 0
         videoRenderer.resetFrameState()
         sidSynthesizer.reset()
 
@@ -290,6 +311,8 @@ class C64ExecutionCore(
         ram.fill(0)
         colorRam.fill(0)
         vicRegs.fill(0)
+        prevAltered[0] = 0
+        prevAltered[1] = 0
         videoRenderer.resetFrameState()
         sidSynthesizer.reset()
 
@@ -326,11 +349,96 @@ class C64ExecutionCore(
         zpScreenTest = base.symbols["SCREENTEST"] ?: -1
     }
 
+    private fun beastStandFrameForLevel(level: Int): Int {
+        return when (level) {
+            1 -> 26
+            2 -> 33
+            3 -> 45
+            4 -> 63
+            5 -> 26
+            else -> 26
+        }
+    }
+
+    private fun beastFallFrameForLevel(level: Int): Int {
+        return when (level) {
+            1 -> 27
+            2 -> 33
+            3 -> 50
+            4 -> 64
+            5 -> 27
+            else -> 27
+        }
+    }
+
+    private fun isValidBeastFrameForLevel(level: Int, frame: Int): Boolean {
+        return when (level) {
+            1 -> frame in 23..32
+            2 -> frame in 33..41
+            3 -> frame in 42..59
+            4 -> frame in 60..70
+            5 -> frame in 23..32
+            else -> frame in 23..70
+        }
+    }
+
+    private fun initializePlayerBeastState(p: Int) {
+        if (symBalls >= 0) {
+            ram[symBalls + p] = 3
+        }
+        if (symAltered >= 0) {
+            ram[symAltered + p] = 255.toByte()
+        }
+        if (symFaceFlash >= 0) {
+            ram[symFaceFlash + p] = 50
+        }
+        if (symBlanking >= 0) {
+            ram[symBlanking + p] = 0
+        }
+        if (symAction >= 0) {
+            val curAct = ram[symAction + p].toInt() and 0xFF
+            if (curAct < 11) {
+                ram[symAction + p] = 0
+            }
+        }
+        if (symCount >= 0) {
+            ram[symCount + p] = 0
+        }
+        if (symSpeed >= 0) {
+            ram[symSpeed + p] = 1
+        }
+        if (symTimes >= 0) {
+            ram[symTimes + p] = 0
+        }
+        if (symSpecial >= 0) {
+            ram[symSpecial + p] = 0
+        }
+        if (symDoJumpAdd >= 0) {
+            ram[symDoJumpAdd + p] = 0
+        }
+        if (symJumpAdd >= 0) {
+            ram[symJumpAdd + p] = 0
+        }
+        if (symAdd >= 0) {
+            ram[symAdd + p] = 0
+        }
+        if (symNAdd >= 0) {
+            ram[symNAdd + p] = 0
+        }
+        if (symFrame >= 0) {
+            ram[symFrame + p] = beastStandFrameForLevel(currentLoadedLevel).toByte()
+        }
+        prevAltered[p] = 255
+    }
+
     fun toggleCheatMode(): Boolean {
         val next = !cheatEnabled
         cheatEnabled = next
         keyCheatPressed = next
         if (inGameMode) {
+            val enemy2 = if (symEnemy >= 0) ram[symEnemy + 2].toInt() and 0xFF else 0
+            val scroll = if (symScroll >= 0) ram[symScroll].toInt() and 0xFF else 0
+            val endScroll = if (symEndScroll >= 0) ram[symEndScroll].toInt() and 0xFF else 0
             if (next) {
                 if (symCheatBit >= 0) {
                     ram[(symCheatBit + 1) and 0xFFFF] = 255.toByte()
@@ -347,17 +455,12 @@ class C64ExecutionCore(
                         if (symHits >= 0) {
                             ram[symHits + p] = 9
                         }
-                        if (symBalls >= 0) {
-                            ram[symBalls + p] = 3
-                        }
-                        if (symAltered >= 0) {
-                            ram[symAltered + p] = 255.toByte()
-                        }
-                        if (symFaceFlash >= 0) {
-                            ram[symFaceFlash + p] = 50
-                        }
                         if (symBlanking >= 0) {
                             ram[symBlanking + p] = 0
+                        }
+                        val act = if (symAction >= 0) ram[symAction + p].toInt() and 0xFF else 0
+                        if (enemy2 != 2 && enemy2 != 3 && (scroll != 0 || endScroll != 0) && act < 11) {
+                            initializePlayerBeastState(p)
                         }
                     }
                 }
@@ -483,16 +586,8 @@ class C64ExecutionCore(
                     if (enemy2 != 2 && enemy2 != 3 && (scroll != 0 || endScroll != 0)) {
                         val act = if (symAction >= 0) ram[symAction + p].toInt() and 0xFF else 0
                         val curAltered = if (symAltered >= 0) ram[symAltered + p].toInt() and 0xFF else 0
-                        if (act < 11 && curAltered == 0) {
-                            if (symBalls >= 0) {
-                                ram[symBalls + p] = 3
-                            }
-                            if (symAltered >= 0) {
-                                ram[symAltered + p] = 255.toByte()
-                            }
-                            if (symFaceFlash >= 0) {
-                                ram[symFaceFlash + p] = 50
-                            }
+                        if ((act == 0 || act == 1) && curAltered == 0) {
+                            initializePlayerBeastState(p)
                         }
                     }
                 }
@@ -500,11 +595,22 @@ class C64ExecutionCore(
         }
 
         if (symX < 0 || symY < 0 || symDir < 0 || symAction < 0 || symLives < 0) return
+
+        for (p in 0..1) {
+            val curAltered = if (symAltered >= 0) ram[symAltered + p].toInt() and 0xFF else 0
+            if (prevAltered[p] == 0 && curAltered != 0) {
+                initializePlayerBeastState(p)
+            } else {
+                prevAltered[p] = curAltered
+            }
+        }
+
         if (enemy2 == 3) {
             for (p in 0..1) {
                 val lives = ram[symLives + p].toInt() and 0xFF
                 val act = ram[symAction + p].toInt() and 0xFF
-                if (lives > 0 && act == 16) {
+                val curY = ram[symY + p].toInt() and 0xFF
+                if (lives > 0 && act == 16 && curY < 138) {
                     ram[symY + p] = 138.toByte()
                 }
             }
@@ -513,8 +619,109 @@ class C64ExecutionCore(
 
         for (p in 0..1) {
             val lives = ram[symLives + p].toInt() and 0xFF
-            val act = ram[symAction + p].toInt() and 0xFF
+            var act = ram[symAction + p].toInt() and 0xFF
             if (lives == 0 || act >= 14) continue
+
+            val altered = if (symAltered >= 0) ram[symAltered + p].toInt() and 0xFF else 0
+            if (altered != 0 && enemy2 != 2) {
+                val count = if (symCount >= 0) ram[symCount + p].toInt() and 0xFF else 0
+                val speed = if (symSpeed >= 0) ram[symSpeed + p].toInt() and 0xFF else 1
+                val special = if (symSpecial >= 0) ram[symSpecial + p].toInt() and 0xFF else 0
+                val frame = if (symFrame >= 0) ram[symFrame + p].toInt() and 0xFF else 0
+
+                if (currentLoadedLevel == 2) {
+                    if (act == 12 || act == 13) {
+                        if (count > 5 && symCount >= 0) {
+                            ram[symCount + p] = 0
+                        }
+                        if ((speed == 0 || speed > 8) && symSpeed >= 0) {
+                            ram[symSpeed + p] = 1
+                        }
+                    } else {
+                        if (act != 0) {
+                            ram[symAction + p] = 0
+                            act = 0
+                        }
+                        val safeCount = if (count > 4) {
+                            if (symCount >= 0) ram[symCount + p] = 0
+                            0
+                        } else {
+                            count
+                        }
+                        if ((speed == 0 || speed > 8) && symSpeed >= 0) {
+                            ram[symSpeed + p] = 1
+                        }
+                        if (symFrame >= 0) {
+                            if (special == 0 && frame !in 33..37) {
+                                ram[symFrame + p] = (33 + safeCount).toByte()
+                            } else if (frame !in 33..41) {
+                                ram[symFrame + p] = 33.toByte()
+                            }
+                        }
+                    }
+                } else {
+                    val isInvalidHumanAttack = if (currentLoadedLevel == 4) {
+                        act == 6 || act == 7
+                    } else {
+                        act == 6 || act == 7 || act == 8
+                    }
+                    if (isInvalidHumanAttack) {
+                        ram[symAction + p] = 0
+                        act = 0
+                        if (symCount >= 0) ram[symCount + p] = 0
+                        if (symSpeed >= 0) ram[symSpeed + p] = 1
+                        if (symFrame >= 0) ram[symFrame + p] = beastStandFrameForLevel(currentLoadedLevel).toByte()
+                    } else if (act == 1) {
+                        if (count > 3 && symCount >= 0) {
+                            ram[symCount + p] = 0
+                        }
+                        if ((speed == 0 || speed > 12) && symSpeed >= 0) {
+                            ram[symSpeed + p] = 1
+                        }
+                    } else if (currentLoadedLevel == 3 && act == 9) {
+                        if (count > 26 && symCount >= 0) {
+                            ram[symCount + p] = 0
+                        }
+                        if ((speed == 0 || speed > 4) && symSpeed >= 0) {
+                            ram[symSpeed + p] = 1
+                        }
+                    } else if (currentLoadedLevel == 3 && act == 10) {
+                        if (count > 10 && symCount >= 0) {
+                            ram[symCount + p] = 0
+                        }
+                        if ((speed == 0 || speed > 8) && symSpeed >= 0) {
+                            ram[symSpeed + p] = 1
+                        }
+                    } else if (currentLoadedLevel == 4 && act == 9) {
+                        if (count > 10 && symCount >= 0) {
+                            ram[symCount + p] = 0
+                        }
+                    }
+
+                    if (act < 11 && symFrame >= 0) {
+                        val curFrame = ram[symFrame + p].toInt() and 0xFF
+                        if (!isValidBeastFrameForLevel(currentLoadedLevel, curFrame) ||
+                            (currentLoadedLevel == 4 && act == 4 && curFrame == 70)
+                        ) {
+                            val fallbackFrame = if (act == 2 || act == 3 || act == 4) {
+                                beastFallFrameForLevel(currentLoadedLevel)
+                            } else {
+                                beastStandFrameForLevel(currentLoadedLevel)
+                            }
+                            ram[symFrame + p] = fallbackFrame.toByte()
+                        }
+                    }
+                }
+            } else if (act == 1) {
+                val count = if (symCount >= 0) ram[symCount + p].toInt() and 0xFF else 0
+                val speed = if (symSpeed >= 0) ram[symSpeed + p].toInt() and 0xFF else 1
+                if (count > 3 && symCount >= 0) {
+                    ram[symCount + p] = 0
+                }
+                if ((speed == 0 || speed > 12) && symSpeed >= 0) {
+                    ram[symSpeed + p] = 1
+                }
+            }
 
             val dir = ram[symDir + p].toInt() and 0xFF
             val minX = if (dir != 0) (if (p == 0) 8 else 6) else (if (p == 0) 14 else 12)
@@ -528,7 +735,6 @@ class C64ExecutionCore(
 
             val curY = ram[symY + p].toInt() and 0xFF
             val attached = if (symAttached >= 0) ram[symAttached + p].toInt() and 0xFF else 255
-            val altered = if (symAltered >= 0) ram[symAltered + p].toInt() and 0xFF else 0
 
             if (currentLoadedLevel == 2 && altered != 0) {
                 if (curY < 18 || curY > 200) {
