@@ -49,7 +49,7 @@ Global lifecycle hooks include `on_init`, `on_before_frame`, `on_frame`, `on_sca
 
 ### Mod security
 
-Lua mods are executable code, not passive data. GZBeast initializes LuaJ with standard JSE globals and exposes powerful game and asset APIs; mods are **not an operating-system security sandbox**. Only install scripts you trust. Review a mod's source before running it, and avoid granting storage access when you do not trust its publisher.
+Lua mods are executable code, not passive data. GZBeast initializes LuaJ with standard JSE globals and exposes powerful game and asset APIs; mods are [not an operating-system security sandbox](https://en.wikipedia.org/wiki/Sandbox_(computer_security)) Only install scripts you trust. Review a mod's source before running it, and avoid granting storage access when you do not trust its publisher.
 
 ## Build
 
