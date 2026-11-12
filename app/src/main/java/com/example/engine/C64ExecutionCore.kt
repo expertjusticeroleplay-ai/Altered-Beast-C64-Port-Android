@@ -156,6 +156,11 @@ class C64ExecutionCore(
     private var symMapD0 = -1
     private var symCounter = -1
     private var symScreenPointer = -1
+    private var symQuit = -1
+    private var symRestart = -1
+    private var symXscroll = -1
+    private var symSetGame = -1
+    private var symPlotInter = -1
 
     private val prevAltered = IntArray(2)
     private var jumpUpLatch = false
@@ -282,6 +287,11 @@ class C64ExecutionCore(
         symMapD0 = level1.symbols["MAPD0"] ?: -1
         symCounter = level1.symbols["COUNTER"] ?: -1
         symScreenPointer = level1.symbols["SCREENPOINTER"] ?: -1
+        symQuit = level1.symbols["QUIT"] ?: -1
+        symRestart = level1.symbols["RESTART"] ?: -1
+        symXscroll = level1.symbols["XSCROLL"] ?: -1
+        symSetGame = level1.symbols["SETGAME"] ?: -1
+        symPlotInter = level1.symbols["PLOTINTER"] ?: -1
 
         for (lvl in 2..5) {
             levelPrograms[lvl] = assembler.assembleGameLevel(lvl)
@@ -301,6 +311,7 @@ class C64ExecutionCore(
         prevAltered[1] = 0
         videoRenderer.resetFrameState()
         videoRenderer.clearScrollEdgeHistory()
+        videoRenderer.intermissionScreenActive = false
         sidSynthesizer.reset()
 
         System.arraycopy(intro.memory, 0, ram, 0, 65536)
@@ -347,6 +358,7 @@ class C64ExecutionCore(
         prevAltered[1] = 0
         videoRenderer.resetFrameState()
         videoRenderer.clearScrollEdgeHistory()
+        videoRenderer.intermissionScreenActive = false
         sidSynthesizer.reset()
 
         System.arraycopy(base.memory, 0, ram, 0, 65536)
@@ -483,11 +495,16 @@ class C64ExecutionCore(
 
     fun toggleCheatMode(): Boolean {
         val next = !cheatEnabled
-        cheatEnabled = next
-        keyCheatPressed = next
+        setCheatMode(next)
+        return next
+    }
+
+    fun setCheatMode(enabled: Boolean) {
+        cheatEnabled = enabled
+        keyCheatPressed = enabled
         if (inGameMode) {
             val enemy2 = if (symEnemy >= 0) ram[symEnemy + 2].toInt() and 0xFF else 0
-            if (next) {
+            if (enabled) {
                 if (symCheatBit >= 0) {
                     ram[(symCheatBit + 1) and 0xFFFF] = 255.toByte()
                 }
@@ -526,12 +543,31 @@ class C64ExecutionCore(
                 }
             }
         }
-        return next
+    }
+
+    private fun resetGameSfxDriverState() {
+        ram[0x0400] = 0xFF.toByte()
+        ram[0x0407] = 0xFF.toByte()
+        ram[0x040E] = 0xFF.toByte()
+        ram[0x0430] = 0xFF.toByte()
+        ram[0x0437] = 0xFF.toByte()
+        ram[0x043E] = 0xFF.toByte()
+        ram[0x0402] = 0
+        ram[0x0409] = 0
+        ram[0x0410] = 0
+        ram[0x0432] = 0
+        ram[0x0439] = 0
+        ram[0x0440] = 0
+        ram[0x0708] = 0
+        sidSynthesizer.reset()
+        sidSynthesizer.writeRegister(0x18, 0x0F)
     }
 
     fun triggerRestoreKey() {
-        if (keyPausePressed) {
-            setPauseMode(false)
+        setPauseMode(false)
+        setCheatMode(false)
+        if (inGameMode) {
+            resetGameSfxDriverState()
         }
         pendingRestoreNmi = true
     }
@@ -564,7 +600,22 @@ class C64ExecutionCore(
         if (pendingRestoreNmi) {
             pendingRestoreNmi = false
             cia2IcrFlags = 0x00
-            triggerNmi()
+            if (inGameMode) {
+                resetGameSfxDriverState()
+                if (symQuit >= 0) {
+                    ram[symQuit and 0xFFFF] = 1
+                }
+                if (symAction >= 0) {
+                    for (p in 0..4) {
+                        val act = ram[symAction + p].toInt() and 0xFF
+                        if (act in 14..17) {
+                            ram[symAction + p] = 0
+                        }
+                    }
+                }
+            } else {
+                triggerNmi()
+            }
         }
 
         if (!joyUp) {
@@ -842,6 +893,7 @@ class C64ExecutionCore(
     }
 
     private fun populateCurrentRightColumn39() {
+        if (videoRenderer.intermissionScreenActive) return
         if (symStrip < 0 || symMapD0 < 0) return
         val strip = (ram[symStrip and 0xFFFF].toInt() and 0xFF) and 0x0C
         val colTableAddr = resolveSymbol("COLTABLE", currentLoadedLevel) ?: -1
@@ -864,6 +916,7 @@ class C64ExecutionCore(
     }
 
     private fun populateNextRightColumn39Preview() {
+        if (videoRenderer.intermissionScreenActive) return
         if (symStrip < 0 || symMapD0 < 0) return
         val curStrip = ram[symStrip and 0xFFFF].toInt() and 0xFF
         val nextStrip = (curStrip + 4) and 0xFF
@@ -932,6 +985,20 @@ class C64ExecutionCore(
                     bootGameProgram()
                     cycleRemainder = 0
                     return
+                }
+            }
+
+            if (inGameMode) {
+                if (regPC == symRestart) {
+                    resetGameSfxDriverState()
+                    videoRenderer.clearScrollEdgeHistory()
+                    videoRenderer.intermissionScreenActive = false
+                } else if (regPC == symSetGame) {
+                    videoRenderer.intermissionScreenActive = false
+                    videoRenderer.clearScrollEdgeHistory()
+                } else if (regPC == symPlotInter) {
+                    videoRenderer.intermissionScreenActive = true
+                    videoRenderer.clearScrollEdgeHistory()
                 }
             }
 
@@ -1072,7 +1139,9 @@ class C64ExecutionCore(
             in 1..5 -> {
                 val lvlProg = levelPrograms[fileId] ?: return
                 currentLoadedLevel = fileId
+                videoRenderer.intermissionScreenActive = false
                 videoRenderer.clearScrollEdgeHistory()
+                resetGameSfxDriverState()
                 val src = lvlProg.memory
                 System.arraycopy(src, gameNewPcAddr, ram, gameNewPcAddr, 0xB400 - gameNewPcAddr)
                 System.arraycopy(src, 0xD240, ram, 0xD240, 0xF000 - 0xD240)
@@ -1080,12 +1149,24 @@ class C64ExecutionCore(
             }
             in 6..10 -> {
                 val interIdx = fileId - 5
+                videoRenderer.intermissionScreenActive = true
+                videoRenderer.clearScrollEdgeHistory()
+                resetGameSfxDriverState()
+                ram.fill(0, 0xF000, 0xF800)
+                colorRam.fill(0, 0, 800)
+                if (symXscroll >= 0) {
+                    ram[symXscroll and 0xFFFF] = 0
+                }
                 val data = assetProvider.readBytes("GAME/LEVEL$interIdx/LEVEL${interIdx}IN.CHR")
-                val copyLen = data.size.coerceAtMost(0x10000 - gameCharsetAddr)
+                val copyLen = data.size.coerceAtMost(0xFF80 - gameCharsetAddr)
+                ram.fill(0, gameCharsetAddr, 0xFF80)
                 System.arraycopy(data, 0, ram, gameCharsetAddr, copyLen)
             }
             in 11..18 -> {
                 val interIdx = ((fileId - 11) % 5) + 1
+                videoRenderer.intermissionScreenActive = false
+                videoRenderer.clearScrollEdgeHistory()
+                resetGameSfxDriverState()
                 val data = assetProvider.readBytes("GAME/LEVEL$interIdx/LEVEL${interIdx}IN.CHR")
                 ram.fill(0, 0x8000, 0x8000 + 2160)
                 for (row in 0 until 15) {

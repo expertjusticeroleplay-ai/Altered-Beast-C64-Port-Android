@@ -51,6 +51,9 @@ class VicIIVideoRenderer {
     private val activeLeftColColor = IntArray(25)
     private var hasActiveLeftCol = false
 
+    @Volatile
+    var intermissionScreenActive: Boolean = false
+
     private var lastPlayfieldBgColor0: Int = defaultPalette[0]
 
     fun resetFrameState() {
@@ -300,14 +303,15 @@ class VicIIVideoRenderer {
         val rowScreenIndex = charRow * 40
 
         val isHudPanel = !bitmapMode && charBase == 0xB800 && charRow in 20..24
-        val effectiveXScroll = if (isHudPanel) 3 else xScroll
+        val isIntermissionPlayfield = intermissionScreenActive && !isHudPanel && !bitmapMode && charRow in 0..19
+        val effectiveXScroll = if (isHudPanel || isIntermissionPlayfield) 3 else xScroll
 
         for (x in 0 until 320) {
             framePixels[rowOffset + x] = bgColor0
             bgMaskLine[x] = false
         }
 
-        if (!isHudPanel && effectiveXScroll > 0) {
+        if (!isHudPanel && !isIntermissionPlayfield && !bitmapMode && charRow in 0..19 && effectiveXScroll > 0) {
             val leftScreenCode = if (hasActiveLeftCol) {
                 activeLeftColScreen[charRow]
             } else {
@@ -337,7 +341,10 @@ class VicIIVideoRenderer {
             )
         }
 
-        for (col in 0 until 40) {
+        val startCol = if (isIntermissionPlayfield) 12 else 0
+        val endColExclusive = if (isIntermissionPlayfield) 27 else 40
+
+        for (col in startCol until endColExclusive) {
             val screenAddr = (screenBase + rowScreenIndex + col) and 0xFFFF
             val screenCode = ram[screenAddr].toInt() and 0xFF
             val colorNibble = colorRam[(rowScreenIndex + col) and 0x03FF].toInt() and 0x0F

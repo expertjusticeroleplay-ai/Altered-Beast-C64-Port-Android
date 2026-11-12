@@ -200,6 +200,7 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
                             isInGameMode = executionCore.inGameMode,
                             currentLevel = executionCore.currentLoadedLevel,
                             pausePressed = executionCore.keyPausePressed,
+                            cheatPressed = executionCore.cheatEnabled,
                             deviceFpsCap = fpsCap.roundToInt(),
                             activeRenderFps = measuredFps
                         )
@@ -266,7 +267,12 @@ class AlteredBeastViewModel(application: Application) : AndroidViewModel(applica
 
     fun pressRestoreKey() {
         executionCore.triggerRestoreKey()
-        _uiState.update { it.copy(pausePressed = false) }
+        _uiState.update {
+            it.copy(
+                pausePressed = false,
+                cheatPressed = false
+            )
+        }
     }
 
     fun skipIntroToGame() {

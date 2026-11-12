@@ -604,5 +604,150 @@ class ExampleUnitTest {
             assertTrue("SID 0xD41C envelope readback should be in 0..255", sid.readRegister(0x1C) in 0..255)
         }
     }
+
+    @Test
+    fun intermissionScreenRestoreTogglesAndPlayerHitAudioAreClean() {
+        val assembler = PdsNativeAssembler(fileSystemAssetProvider)
+        val renderer = VicIIVideoRenderer()
+        val sid = SidAudioSynthesizer(48000)
+        val core = C64ExecutionCore(
+            assembler = assembler,
+            assetProvider = fileSystemAssetProvider,
+            videoRenderer = renderer,
+            sidSynthesizer = sid
+        )
+        core.initializeEngine()
+        core.bootGameProgram()
+
+        for (f in 0 until 60) {
+            core.runSinglePalFrame()
+        }
+        core.keyF1Pressed = true
+        for (f in 0 until 140) {
+            core.runSinglePalFrame()
+        }
+        core.keyF1Pressed = false
+
+        core.joyRight = true
+        for (f in 0 until 40) {
+            core.runSinglePalFrame()
+        }
+        core.joyRight = false
+
+        core.ram[0x040E] = 0x1C.toByte()
+        var hitAudibleSamples = 0
+        var maxHitStep = 0
+        var prevSample = 0
+        var hasPrev = false
+        for (f in 0 until 12) {
+            core.runSinglePalFrame()
+            val samples = sid.renderFrameSamples()
+            for (s in samples) {
+                val cur = s.toInt()
+                if (kotlin.math.abs(cur) > 50) {
+                    hitAudibleSamples++
+                }
+                if (hasPrev) {
+                    val step = kotlin.math.abs(cur - prevSample)
+                    if (step > maxHitStep) {
+                        maxHitStep = step
+                    }
+                }
+                prevSample = cur
+                hasPrev = true
+                assertTrue("Player hit SFX sample must not clip: $cur", kotlin.math.abs(cur) <= 26000)
+            }
+        }
+        assertTrue("Expected player hit SFX ($1C) to produce audible smooth tone", hitAudibleSamples > 200)
+        assertTrue("Expected player hit SFX ($1C) to have smooth transitions without harsh static spikes, got maxHitStep=$maxHitStep", maxHitStep < 4500)
+
+        val symNextLevel = core.resolveSymbol("NEXTLEVEL")!!
+        core.regPC = symNextLevel
+        for (f in 0 until 25) {
+            core.runSinglePalFrame()
+        }
+        assertTrue("Expected intermissionScreenActive to be true during PLOTINTER", renderer.intermissionScreenActive)
+
+        var centerPurplePixels = 0
+        for (y in 0 until 160) {
+            for (x in 0 until 99) {
+                assertEquals(
+                    "Expected left side pixel ($x, $y) during intermission screen to be pure black",
+                    0x000000,
+                    renderer.framePixels[y * 320 + x] and 0xFFFFFF
+                )
+            }
+            for (x in 219 until 320) {
+                assertEquals(
+                    "Expected right side pixel ($x, $y) during intermission screen to be pure black",
+                    0x000000,
+                    renderer.framePixels[y * 320 + x] and 0xFFFFFF
+                )
+            }
+            for (x in 99 until 219) {
+                if ((renderer.framePixels[y * 320 + x] and 0xFFFFFF) != 0x000000) {
+                    centerPurplePixels++
+                }
+            }
+        }
+        assertTrue("Expected center 15x15 purple illustration to render non-black pixels during PLOTINTER", centerPurplePixels > 500)
+
+        core.bootGameProgram()
+        for (f in 0 until 50) {
+            core.runSinglePalFrame()
+        }
+        core.keyF1Pressed = true
+        for (f in 0 until 120) {
+            core.runSinglePalFrame()
+        }
+        core.keyF1Pressed = false
+
+        assertTrue(core.togglePauseMode())
+        assertTrue(core.toggleCheatMode())
+        assertTrue(core.keyPausePressed)
+        assertTrue(core.cheatEnabled)
+        assertTrue(core.keyCheatPressed)
+
+        core.ram[0x0400] = 0x04.toByte()
+        core.ram[0x0407] = 0x05.toByte()
+        core.ram[0x040E] = 0x1C.toByte()
+        core.setPauseMode(false)
+        core.runSinglePalFrame()
+        core.setPauseMode(true)
+        assertTrue(core.keyPausePressed)
+        assertTrue(core.cheatEnabled)
+
+        core.triggerRestoreKey()
+        assertFalse("Expected Restore to turn off Pause toggle", core.keyPausePressed)
+        assertFalse("Expected Restore to turn off Cheat toggle", core.cheatEnabled)
+        assertFalse("Expected Restore to turn off keyCheatPressed", core.keyCheatPressed)
+        val symCheatBit = core.resolveSymbol("CHEATBIT")!!
+        assertEquals(0, core.ram[symCheatBit + 1].toInt() and 0xFF)
+        assertEquals(0xFF, core.ram[0x0400].toInt() and 0xFF)
+        assertEquals(0xFF, core.ram[0x0407].toInt() and 0xFF)
+        assertEquals(0xFF, core.ram[0x040E].toInt() and 0xFF)
+
+        var maxRestoreAudioStep = 0
+        var lastS = 0
+        var hasLastS = false
+        for (f in 0 until 20) {
+            core.runSinglePalFrame()
+            val samples = sid.renderFrameSamples()
+            for (s in samples) {
+                val cur = s.toInt()
+                if (hasLastS) {
+                    val diff = kotlin.math.abs(cur - lastS)
+                    if (diff > maxRestoreAudioStep) {
+                        maxRestoreAudioStep = diff
+                    }
+                }
+                lastS = cur
+                hasLastS = true
+            }
+        }
+        assertTrue("Expected Restore during active SFX to fade out smoothly without crackling spike, got $maxRestoreAudioStep", maxRestoreAudioStep < 3500)
+        val quietTail = sid.renderFrameSamples()
+        assertTrue("Expected SID audio to be completely silent after Restore fade-out", quietTail.all { kotlin.math.abs(it.toInt()) <= 2 })
+    }
 }
 
